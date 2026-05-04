@@ -1,5 +1,7 @@
 # Natural Hazard Intelligence Summary — Anthropic edition
 
+> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch migrates the AI subsystem from OpenAI to Anthropic Claude and adds a Gantt-chart generation feature. The underlying architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to him; see [Acknowledgements](#acknowledgements) below.
+
 A near real-time natural hazard intelligence platform that:
 
 - Scrapes latest hazard content from MetService
@@ -7,8 +9,6 @@ A near real-time natural hazard intelligence platform that:
 - Regenerates AI summaries when source data changes using **Anthropic Claude**
 - Generates structured **Gantt charts** of warnings and watches on demand
 - Pushes update events to the UI through `Ably` pub/sub
-
-> **This is the `anthropic` branch.** The AI subsystem has been migrated from OpenAI to Anthropic Claude, and a new Gantt-chart generator has been added. See [Branches](#branches) below for the other versions.
 
 ## Branches
 
@@ -196,13 +196,30 @@ docker compose down -v
 
 ![image](https://github.com/user-attachments/assets/b7895fd3-cd36-4122-ab44-e52806292fb8)
 
-## Gant Chart Creation
+## Gantt Chart Creation
+
 <img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/2fa241e9-581e-472b-a7c1-4e53ecee60d2" />
 
 ## AI Generated content validation
 
 ![image](https://github.com/user-attachments/assets/c14c1ac7-6dff-4d01-9f4e-604670efe9c9)
 
-## Credits
+## Acknowledgements
 
-Original implementation by [Evan Chen](https://github.com/chen-wenyi). Migration to Anthropic and Gantt feature additions by the current maintainer. MIT licensed.
+This project is built on top of the **Natural Hazard Intelligence Summary** platform created by **[Evan Chen (chen-wenyi)](https://github.com/chen-wenyi)** and licensed under the [MIT License](LICENSE).
+
+**Evan's original work** (preserved on the [`original` branch](../../tree/original)):
+- The complete three-service architecture (main-services / scrape-services / ui) and Docker Compose orchestration
+- The MetService scraping pipeline (Playwright-based outlook scraping plus CAP feed parsing)
+- The MongoDB schema and revision-history persistence model
+- The Ably realtime layer and channel-event vocabulary
+- The cron scheduling and stale-vs-new dedup logic
+- The AI extraction prompts (severe weather and thunderstorm) with their strict quote-as-evidence rules and Māori macron handling — these are kept verbatim in this branch
+- The React + TanStack Start dashboard UI and all its features (issued alerts timeline, status badges, revision comparison, AI content validation)
+
+**Modifications on this branch:**
+- Migrated the AI provider from OpenAI to Anthropic Claude, adapting `ai-generate.service.ts` to use tool-use for structured output instead of `zodResponseFormat`. The prompts and Zod schemas are unchanged.
+- Added a Gantt-chart generator: a new prompt + schema (`ganttPrompt.ts`, `GanttChartSchema`), backend endpoints, and a UI route at `/gantt` with paste-text + use-latest-scraped modes and 150/300 DPI PNG export.
+- Bug fixes for an Ably URL-parsing issue under TanStack Start SSR (deferred client construction with a no-op stub during server render), container timezone, and a custom Luxon-based logger format.
+
+If you're evaluating this work, the most accurate way to see what was changed is `git diff original..anthropic` — the diff is small relative to the project as a whole.
