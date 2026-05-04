@@ -1,6 +1,6 @@
 # Natural Hazard Intelligence Summary — OpenAI edition with Gantt
 
-> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch keeps Evan's OpenAI-based AI subsystem (`gpt-5-mini`) untouched and adds a Gantt-chart generation feature on top. Architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to him; see [Acknowledgements](#acknowledgements) below.
+> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch keeps Evan's OpenAI-based AI subsystem (`gpt-5-mini`) untouched and adds a Gantt-chart generation feature on top. Architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to then; see [Acknowledgements](#acknowledgements) below.
 
 A near real-time natural hazard intelligence platform that:
 
