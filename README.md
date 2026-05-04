@@ -1,5 +1,7 @@
 # Natural Hazard Intelligence Summary — OpenAI edition with Gantt
 
+> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch keeps Evan's OpenAI-based AI subsystem (`gpt-5-mini`) untouched and adds a Gantt-chart generation feature on top. Architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to them; see [Acknowledgements](#acknowledgements) below.
+
 A near real-time natural hazard intelligence platform that:
 
 - Scrapes latest hazard content from MetService
@@ -7,8 +9,6 @@ A near real-time natural hazard intelligence platform that:
 - Regenerates AI summaries when source data changes using **OpenAI**
 - Generates structured **Gantt charts** of warnings and watches on demand
 - Pushes update events to the UI through `Ably` pub/sub
-
-> **This is the `open_ai` branch.** The AI subsystem still uses OpenAI `gpt-5-mini` (matching the `original` branch), and a new Gantt-chart generator has been added on top. See [Branches](#branches) below for the other versions.
 
 ## Branches
 
@@ -195,13 +195,30 @@ docker compose down -v
 
 ![image](https://github.com/user-attachments/assets/b7895fd3-cd36-4122-ab44-e52806292fb8)
 
-# Gantt Chart Creation
+## Gantt Chart Creation
+
 <img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/e9a849d8-3c84-4c65-914d-efc37a3f690d" />
 
 ## AI Generated content validation
 
 ![image](https://github.com/user-attachments/assets/c14c1ac7-6dff-4d01-9f4e-604670efe9c9)
 
-## Credits
+## Acknowledgements
 
-Original implementation by [Evan Chen](https://github.com/chen-wenyi). Gantt feature added by the current maintainer. MIT licensed.
+This project is built on top of the **Natural Hazard Intelligence Summary** platform created by **[Evan Chen (chen-wenyi)](https://github.com/chen-wenyi)** and licensed under the [MIT License](LICENSE).
+
+**Evan's original work** (preserved on the [`original` branch](../../tree/original)):
+- The complete three-service architecture (main-services / scrape-services / ui) and Docker Compose orchestration
+- The MetService scraping pipeline (Playwright-based outlook scraping plus CAP feed parsing)
+- The MongoDB schema and revision-history persistence model
+- The Ably realtime layer and channel-event vocabulary
+- The cron scheduling and stale-vs-new dedup logic
+- The AI extraction subsystem — `openai` SDK with `zodResponseFormat`, the severe-weather and thunderstorm prompts with their strict quote-as-evidence rules and Māori macron handling
+- The React + TanStack Start dashboard UI and all its features (issued alerts timeline, status badges, revision comparison, AI content validation)
+
+**Modifications on this branch:**
+- Added a Gantt-chart generator: a new prompt + schema (`ganttPrompt.ts`, `GanttChartSchema`), backend endpoints, and a UI route at `/gantt` with paste-text + use-latest-scraped modes and 150/300 DPI PNG export. The new `generateGanttChart()` method follows the same `chat.completions.parse()` + `zodResponseFormat` pattern Evan established for the existing two summaries.
+- Made the OpenAI model configurable via an `OPENAI_MODEL` env var (default unchanged at `gpt-5-mini`).
+- Bug fixes for an Ably URL-parsing issue under TanStack Start SSR (deferred client construction with a no-op stub during server render), container timezone, and a custom Luxon-based logger format.
+
+If you're evaluating this work, the most accurate way to see what was changed is `git diff original..open_ai` — the diff is small relative to the project as a whole.
