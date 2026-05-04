@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { DateTime } from 'luxon';
 import { ObjectId, WithId } from 'mongodb';
 import { MongoService } from 'src/database/mongo.service';
 import {
@@ -31,8 +32,7 @@ export class ScrapeRepository {
     const collection = this.mongoService.getCollection<SevereWeatherDoc>(
       SEVERE_WEATHER_COLLECTION,
     );
-    const record = await collection.findOne({ _id: new ObjectId(id) });
-    return record;
+    return collection.findOne({ _id: new ObjectId(id) });
   }
 
   async findThunderstormOutlookById(
@@ -41,36 +41,21 @@ export class ScrapeRepository {
     const collection = this.mongoService.getCollection<ThunderstormDoc>(
       THUNDERSTORM_COLLECTION,
     );
-    const record = await collection.findOne({ _id: new ObjectId(id) });
-    return record;
+    return collection.findOne({ _id: new ObjectId(id) });
   }
 
   async findLatestSevereWeatherOutlook(): Promise<SevereWeatherDoc | null> {
     const collection = this.mongoService.getCollection<SevereWeatherDoc>(
       SEVERE_WEATHER_COLLECTION,
     );
-    const latestRecord = await collection.findOne(
-      {},
-      {
-        sort: { insertedAt: -1 },
-      },
-    );
-
-    return latestRecord;
+    return collection.findOne({}, { sort: { insertedAt: -1 } });
   }
 
   async findLatestThunderstormOutlook(): Promise<ThunderstormDoc | null> {
     const collection = this.mongoService.getCollection<ThunderstormDoc>(
       THUNDERSTORM_COLLECTION,
     );
-    const latestRecord = await collection.findOne(
-      {},
-      {
-        sort: { insertedAt: -1 },
-      },
-    );
-
-    return latestRecord;
+    return collection.findOne({}, { sort: { insertedAt: -1 } });
   }
 
   async insertSevereWeatherOutlook(scrapedOutlook: SevereWeatherDoc) {
@@ -100,14 +85,7 @@ export class ScrapeRepository {
       this.mongoService.getCollection<IssuedAlertEntriesDocument>(
         ISSUED_ALERTS_COLLECTION,
       );
-    const latestRecord = await collection.findOne(
-      {},
-      {
-        sort: { insertedAt: -1 },
-      },
-    );
-
-    return latestRecord;
+    return collection.findOne({}, { sort: { insertedAt: -1 } });
   }
 
   async insertIssuedAlerts(
@@ -143,5 +121,50 @@ export class ScrapeRepository {
       );
     await collection.insertOne(data);
     this.logger.log('Collection: ai_thunderstorm_outlook_summary updated.');
+  }
+
+  // ------------------------------------------------------------
+  // NEW: render the latest scraped issued alerts as MetService-style
+  // text suitable for feeding into the Gantt extraction prompt.
+  // ------------------------------------------------------------
+  async getLatestIssuedAlertsAsText(): Promise<string> {
+    const latest = await this.findLatestIssuedAlerts();
+    if (!latest || !latest.entries.length) {
+      return '';
+    }
+
+    const fmt = (iso: string) => {
+      try {
+        const dt = DateTime.fromISO(iso, { setZone: true }).setZone(
+          'Pacific/Auckland',
+        );
+        return dt.isValid ? dt.toFormat("h:mma cccc d LLLL yyyy") : iso;
+      } catch {
+        return iso;
+      }
+    };
+
+    const blocks = latest.entries
+      .filter((e) => e._status !== 'removed')
+      .map((e) => {
+        const headline = e.headline || e.event || 'Weather alert';
+        const area = e.areaDesc || '';
+        const period = `from ${fmt(e.onset)} to ${fmt(e.expires)}`;
+        const upgrade = e.ChanceOfUpgrade
+          ? `Chance of upgrade: ${e.ChanceOfUpgrade}`
+          : '';
+        const desc = (e.description || '').trim();
+        return [
+          headline,
+          area ? `Area: ${area}` : '',
+          `Period: ${period}`,
+          upgrade,
+          desc,
+        ]
+          .filter(Boolean)
+          .join('\n');
+      });
+
+    return blocks.join('\n\n---\n\n');
   }
 }
