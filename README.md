@@ -1,6 +1,6 @@
 # Natural Hazard Intelligence Summary
 
-> **About this fork.** This repository is a fork of [Evan Chen's NHIS project](https://github.com/chen-wenyi). The `original` branch you're viewing is preserved unchanged from his work. See [Branches](#branches) below for two derivative versions that add a Gantt-chart feature and (in one case) migrate the AI provider.
+> **About this fork.** This repository is a fork of [Evan Chen's NHIS project](https://github.com/chen-wenyi). The `original` branch you're viewing is preserved unchanged from their work. See [Branches](#branches) below for two derivative versions that add a Gantt-chart feature and (in one case) migrate the AI provider.
 
 A near real-time natural hazard intelligence platform that:
 
