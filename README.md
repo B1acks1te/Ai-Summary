@@ -196,6 +196,9 @@ docker compose down -v
 
 ![image](https://github.com/user-attachments/assets/b7895fd3-cd36-4122-ab44-e52806292fb8)
 
+## Gant Chart Creation
+<img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/2fa241e9-581e-472b-a7c1-4e53ecee60d2" />
+
 ## AI Generated content validation
 
 ![image](https://github.com/user-attachments/assets/c14c1ac7-6dff-4d01-9f4e-604670efe9c9)
