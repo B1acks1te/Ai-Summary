@@ -1,11 +1,25 @@
 # Natural Hazard Intelligence Summary
 
+> **About this fork.** This repository is a fork of [Evan Chen's NHIS project](https://github.com/chen-wenyi). The `original` branch you're viewing is preserved unchanged from his work. See [Branches](#branches) below for two derivative versions that add a Gantt-chart feature and (in one case) migrate the AI provider.
+
 A near real-time natural hazard intelligence platform that:
 
 - Scrapes latest hazard content from MetService
 - Stores outlooks and alerts in `MongoDB`
 - Regenerates AI summaries when source data changes
 - Pushes update events to the UI through `Ably` pub/sub
+
+## Branches
+
+This repository hosts three parallel versions of the same project so they can be compared directly:
+
+| Branch | LLM provider | Model | Gantt feature |
+|---|---|---|---|
+| **`original`** *(this branch)* | OpenAI | `gpt-5-mini` | No |
+| [`open_ai`](../../tree/open_ai) | OpenAI | `gpt-5-mini` | Yes |
+| [`anthropic`](../../tree/anthropic) | Anthropic | `claude-haiku-4-5-20251001` | Yes |
+
+The `original` branch is preserved as-shipped by Evan Chen. The `open_ai` and `anthropic` branches add a Gantt-chart generator on top, with `anthropic` additionally migrating the AI subsystem from OpenAI to Anthropic Claude.
 
 ## Demo
 [Demo](https://drive.google.com/file/d/10jYOKI_7c5phWDC1SoBJhGe9gbuqb1nM/view?usp=drive_link)
@@ -157,7 +171,8 @@ docker compose down
 ## AI Generated content validation
 <img width="3324" height="924" alt="image" src="https://github.com/user-attachments/assets/c14c1ac7-6dff-4d01-9f4e-604670efe9c9" />
 
+## Acknowledgements
 
+This project was originally created by **[Evan Chen (chen-wenyi)](https://github.com/chen-wenyi)** and is licensed under the [MIT License](LICENSE). All implementation, design decisions, prompt engineering, and feature work on the `original` branch are Evan's.
 
-
-
+This fork preserves the `original` branch unchanged and adds two derivative branches (`open_ai` and `anthropic`) for comparison purposes — see those branches for details on what was added.
