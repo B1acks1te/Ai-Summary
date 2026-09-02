@@ -1,4 +1,4 @@
-# Natural Hazard Intelligence Summary — Anthropic edition
+# Meteorological Ai Scraping Tool — Anthropic edition
 
 > **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch migrates the AI subsystem from OpenAI to Anthropic Claude and adds a Gantt-chart generation feature. The underlying architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to them; see [Acknowledgements](#acknowledgements) below.
 
@@ -176,7 +176,7 @@ docker compose down -v
 
 # Screenshots
 
-## Natural Hazard Intelligence Dashboard
+## Meteorological Ai Scraping Tool Dashboard
 
 ![image](https://github.com/user-attachments/assets/5d5c01a8-c0d1-446b-b629-3c56bfb63f65)
 
