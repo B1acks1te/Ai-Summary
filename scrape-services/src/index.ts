@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 const app = new Hono();
 
 app.get('/', (c) => {
-  return c.text('NHIS Services');
+  return c.text('Meteorological Ai Scraping Tool Services');
 });
 
 app.get('/severe-weather-outlook', async (c) => {

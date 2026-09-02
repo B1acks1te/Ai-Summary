@@ -58,3 +58,34 @@ export const ThunderstormAISummarySchema = z.object({
 });
 
 export type ThunderstormAISummary = z.infer<typeof ThunderstormAISummarySchema>;
+
+// ------------------------------------------------------------
+// Gantt — used by the new gantt feature
+// ------------------------------------------------------------
+export const GanttHazardTypeEnum = z.enum(['rain', 'wind']);
+export const GanttSeverityEnum = z.enum([
+  'red_warning',
+  'orange_warning',
+  'watch',
+]);
+
+const GanttBarSchema = z.object({
+  region: z.string(),
+  hazard_type: GanttHazardTypeEnum,
+  severity: GanttSeverityEnum,
+  label: z.string(),
+  // ISO 8601 WITHOUT timezone suffix: YYYY-MM-DDTHH:MM
+  start: z.string(),
+  end: z.string(),
+  peak_start: z.string().optional(),
+  peak_end: z.string().optional(),
+});
+
+export const GanttChartSchema = z.object({
+  chart_title: z.string(),
+  bars: z.array(GanttBarSchema),
+  notes: z.array(z.string()),
+});
+
+export type GanttChart = z.infer<typeof GanttChartSchema>;
+export type GanttBar = z.infer<typeof GanttBarSchema>;
