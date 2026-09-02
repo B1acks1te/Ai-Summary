@@ -5,7 +5,7 @@ export default function Header() {
     <div className="flex items-center h-18 font-bold ml-4">
       <LeftYellowLogo />
       <div className="flex-1 text-2xl ml-8 bg-[#0065B3] h-full flex items-center text-white px-4 py-2">
-        Natural Hazard Intelligence Summary
+        Meteorological Ai Scraping Tool
         <nav className="ml-auto flex gap-4 text-sm font-normal">
           <Link
             to="/"
