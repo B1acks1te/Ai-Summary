@@ -29,7 +29,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
         content: 'width=device-width, initial-scale=1',
       },
       {
-        title: 'Natural Hazard Intelligence Summary',
+        title: 'Meteorological Ai Scraping Tool',
       },
     ],
     links: [
