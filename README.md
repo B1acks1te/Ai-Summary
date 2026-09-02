@@ -2,6 +2,8 @@
 
 > **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch migrates the AI subsystem from OpenAI to Anthropic Claude and adds a Gantt-chart generation feature. The underlying architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to them; see [Acknowledgements](#acknowledgements) below.
 
+> **About this fork.** This repository is a fork of [Evan Chen's NHIS project](https://github.com/chen-wenyi). The `original` branch you're viewing is preserved unchanged from their work. See [Branches](#branches) below for two derivative versions that add a Gantt-chart feature and (in one case) migrate the AI provider.
+
 A near real-time natural hazard intelligence platform that:
 
 - Scrapes latest hazard content from MetService
@@ -16,6 +18,14 @@ This repository hosts three parallel versions of the same project so they can be
 
 | Branch | LLM provider | Model | Gantt feature |
 |---|---|---|---|
+| **`original`** *(this branch)* | OpenAI | `gpt-5-mini` | No |
+| [`open_ai`](../../tree/open_ai) | OpenAI | `gpt-5-mini` | Yes |
+| [`anthropic`](../../tree/anthropic) | Anthropic | `claude-haiku-4-5-20251001` | Yes |
+
+The `original` branch is preserved as-shipped by Evan Chen. The `open_ai` and `anthropic` branches add a Gantt-chart generator on top, with `anthropic` additionally migrating the AI subsystem from OpenAI to Anthropic Claude.
+
+## Demo
+[Demo](https://drive.google.com/file/d/10jYOKI_7c5phWDC1SoBJhGe9gbuqb1nM/view?usp=drive_link)
 | [`original`](../../tree/original) | OpenAI | `gpt-5-mini` | No |
 | [`open_ai`](../../tree/open_ai) | OpenAI | `gpt-5-mini` | Yes |
 | **`anthropic`** *(this branch)* | Anthropic | `claude-haiku-4-5-20251001` | Yes |
@@ -201,8 +211,6 @@ docker compose down -v
 <img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/2fa241e9-581e-472b-a7c1-4e53ecee60d2" />
 
 ## AI Generated content validation
-
-![image](https://github.com/user-attachments/assets/c14c1ac7-6dff-4d01-9f4e-604670efe9c9)
 
 ## Acknowledgements
 
