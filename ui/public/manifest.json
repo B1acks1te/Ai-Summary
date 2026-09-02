@@ -1,6 +1,6 @@
 {
-  "short_name": "NHIS",
-  "name": "NHIS",
+  "short_name": "MAST",
+  "name": "Meteorological Ai Scraping Tool",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
