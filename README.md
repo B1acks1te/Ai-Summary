@@ -210,7 +210,7 @@ If you're evaluating this work in detail, `git diff original..develop` remains t
 
 ## Outlooks revision comparison feature
 
-![image](https://github.com/user-attachments/assets/b7895fd3-cd36-4122-ab44-e52806292fb8)
+<img width="1429" height="536" alt="Revision" src="https://github.com/user-attachments/assets/feddee48-3e30-40c0-8b68-fda75929167a" />
 
 ## Gantt Chart Creation
 
