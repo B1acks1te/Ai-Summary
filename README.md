@@ -194,9 +194,7 @@ If you're evaluating this work in detail, `git diff original..develop` remains t
 
 ## Meteorological Ai Scraping Tool Dashboard
 
-![image](https://github.com/user-attachments/assets/5d5c01a8-c0d1-446b-b629-3c56bfb63f65)
-
-<img width="1919" height="949" alt="Dashboard" src="https://github.com/user-attachments/assets/2dc7042d-b24a-44bf-983e-b37503e83390" />
+<img width="1915" height="947" alt="Dashboard" src="https://github.com/user-attachments/assets/d5905da2-bebc-49d4-a335-a5a98a3da1ad" />
 
 ## Data Collection & Visualisation
 
