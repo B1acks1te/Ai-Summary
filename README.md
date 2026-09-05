@@ -196,6 +196,8 @@ If you're evaluating this work in detail, `git diff original..develop` remains t
 
 ![image](https://github.com/user-attachments/assets/5d5c01a8-c0d1-446b-b629-3c56bfb63f65)
 
+<img width="1919" height="949" alt="Dashboard" src="https://github.com/user-attachments/assets/2dc7042d-b24a-44bf-983e-b37503e83390" />
+
 ## Data Collection & Visualisation
 
 ![image](https://github.com/user-attachments/assets/7236fd46-24dd-4fca-94bd-8948924891ae)
