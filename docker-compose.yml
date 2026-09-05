@@ -1,0 +1,74 @@
+services:
+  main_services:
+    container_name: nhis-main-services
+    build:
+      context: ./main-services
+      dockerfile: Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: ./main-services/src
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: Pacific/Auckland
+      LANG: en_NZ.UTF-8
+    networks:
+      - nhis-network
+  scrape_services:
+    container_name: nhis-scrape-services
+    build:
+      context: ./scrape-services
+      dockerfile: Dockerfile
+    ports:
+      - '4000:4000'
+    restart: unless-stopped
+    environment:
+      TZ: Pacific/Auckland
+    networks:
+      - nhis-network
+  ui:
+    container_name: nhis-ui
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    depends_on:
+      - main_services
+      - scrape_services
+      - mongodb
+    ports:
+      - '3001:3001'
+    env_file:
+      - .env
+    environment:
+      TZ: Pacific/Auckland
+    restart: unless-stopped
+    networks:
+      - nhis-network
+  mongodb:
+    image: mongo:latest
+    container_name: nhis-mongodb
+    command:
+      - --quiet
+      - --logpath
+      - /data/db/mongod.log
+      - --logappend
+    ports:
+      - '27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+      TZ: Pacific/Auckland
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    networks:
+      - nhis-network
+networks:
+  nhis-network:
+    driver: bridge
+volumes:
+  mongodb_data:
