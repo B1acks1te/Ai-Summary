@@ -1,28 +1,24 @@
-# Meteorological Ai Scraping Tool — Anthropic edition
+# Meteorological Ai Scraping Tool
 
-> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)** ([original branch preserved here](../../tree/original)). This branch migrates the AI subsystem from OpenAI to Anthropic Claude and adds a Gantt-chart generation feature. The underlying architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI are all Evan's work — full credit to them; see [Acknowledgements](#acknowledgements) below.
+> **Forked from [Evan Chen's NHIS project](https://github.com/chen-wenyi)**. This tool migrates the AI subsystem from OpenAI to Anthropic Claude, adds a Gantt-chart generation feature, and has since evolved substantially beyond the original fork. The underlying architecture, scraping pipeline, MongoDB schema, Ably realtime layer, and UI foundation are all Evan's work — full credit to them; see [Acknowledgements](#acknowledgements) below.
 
 A near real-time natural hazard intelligence platform that:
 
 - Scrapes latest hazard content from MetService
 - Stores outlooks and alerts in `MongoDB`
 - Regenerates AI summaries when source data changes using **Anthropic Claude**
-- Generates structured **Gantt charts** of warnings and watches on demand
+- Generates structured, editable **Gantt charts** of warnings and watches on demand
 - Pushes update events to the UI through `Ably` pub/sub
 
 ## Branches
 
-This repository hosts three parallel versions of the same project so they can be compared directly:
+| Branch | Purpose |
+|---|---|
+| **`master`** | Stable, default branch. Promoted from `develop` once a set of changes has been tested and confirmed working. |
+| **`develop`** | Active development. All new work lands here first. |
+| [`original`](../../tree/original) | Evan Chen's original NHIS project, preserved unchanged, kept as a permanent comparison baseline. |
 
-| Branch | LLM provider | Model | Gantt feature |
-|---|---|---|---|
-| [`original`](../../tree/original) | OpenAI | `gpt-5-mini` | No |
-| [`open_ai`](../../tree/open_ai) | OpenAI | `gpt-5-mini` | Yes |
-| **`anthropic`** *(this branch)* | Anthropic | `claude-haiku-4-5-20251001` | Yes |
-
-The `original` branch is preserved as-shipped by Evan Chen. The `open_ai` and `anthropic` branches add a Gantt-chart generator on top, with `anthropic` additionally migrating the AI subsystem from OpenAI to Anthropic Claude.
-
-The two feature branches (`open_ai` and `anthropic`) share identical UI, scrape pipeline, MongoDB schema, Ably realtime layer, and cron schedules. They differ only in the LLM provider and the surrounding glue code in `main-services/src/services/ai-generate/`.
+Two earlier comparison branches (`anthropic`, `open_ai`) that existed while evaluating OpenAI vs. Anthropic as the AI provider have been archived as tags (`archive/anthropic`, `archive/open_ai`) now that `develop`/`master` has superseded both — they're fully recoverable (`git checkout -b anthropic archive/anthropic`) but no longer maintained as live branches.
 
 ## Demo
 [Demo](https://drive.google.com/file/d/10jYOKI_7c5phWDC1SoBJhGe9gbuqb1nM/view?usp=drive_link)
@@ -49,7 +45,7 @@ Main flow:
 3. If new content is detected, main-services stores it and regenerates summaries with Anthropic Claude (`claude-haiku-4-5-20251001`) using tool-use for structured output.
 4. main-services publishes update events through Ably.
 5. ui subscribes to the Ably channel and refreshes the screen state.
-6. The Gantt page on the UI lets operators paste MetService warning text or pull the latest scraped alerts, and produces a structured Gantt chart of regions × hazards × time.
+6. The Gantt page on the UI lets operators paste MetService warning text or pull the latest scraped alerts, generates a structured Gantt chart of regions × hazards × time, and allows manual correction of ordering, hazard type, and severity before export.
 
 ![image](https://github.com/user-attachments/assets/0b35d8b7-b296-49e6-9d03-b13e42be5cf1)
 
@@ -63,7 +59,7 @@ Cron-driven backend for refresh and orchestration.
 - Detect stale vs new source data
 - Persist records to MongoDB
 - Regenerate AI summaries when new data arrives
-- Generate Gantt charts on demand from issued-alert text
+- Generate Gantt charts on demand from issued-alert text, distinguishing regional hazards (rain/wind/snow) from route-specific alerts (Road Snowfall Warnings)
 - Publish backend update events to Ably for frontend sync
 
 ### scrape-services
@@ -81,7 +77,14 @@ Presentation and user interaction.
 - Show outlooks, alerts, and AI summaries
 - Subscribe to Ably channel events
 - React to backend update and generation events in near real-time
-- Provide a Gantt-chart generator at `/gantt` with paste-text and use-latest-scraped modes, plus 150/300 DPI PNG export
+- Revision history for both outlook types — Thunderstorm Outlook covers the current day, Severe Weather Outlook covers a rolling 5-day window (since it's typically only issued once or twice a day, a same-day window rarely had anything to compare)
+- Provide a Gantt-chart generator at `/gantt` with:
+  - Paste-text and use-latest-scraped input modes
+  - Colour-coded severity (yellow/orange/red, matching MetService's own convention) with border style distinguishing regional vs. route-specific alerts
+  - A manual bars editor — drag to reorder, correct hazard type or severity via dropdown, with labels auto-updating to match
+  - An "exclude road snowfall" display/export toggle
+  - 150/300 DPI PNG export
+  - A built-in "how to use this page" guide
 
 ## Tech Stack
 
@@ -106,26 +109,26 @@ Presentation and user interaction.
 1. Copy environment variables template:
 
 ```bash
-   cp .env.schema .env
+cp .env.schema .env
 ```
 
 2. Open `.env` and set your secrets:
 
 ```env
-   ANTHROPIC_API_KEY=sk-ant-api03-...
-   ABLY_API_KEY=xxxxxx.yyyyyy:zzzzzzzzzz
+ANTHROPIC_API_KEY=sk-ant-api03-...
+ABLY_API_KEY=xxxxxx.yyyyyy:zzzzzzzzzz
 ```
 
 3. The Ably channel name is preconfigured:
 
 ```env
-   ABLY_CHANNEL_NAME=nhis-nest-channel
+ABLY_CHANNEL_NAME=nhis-nest-channel
 ```
 
 4. (Optional) override the model:
 
 ```env
-   ANTHROPIC_MODEL=claude-haiku-4-5-20251001
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 ```
 
 5. If deploying to cloud, set environment variables in your cloud provider instead of committing secrets.
@@ -167,23 +170,31 @@ docker compose down -v
 
 - main-services schedules recurring updates for severe weather outlook, thunderstorm outlook, and issued warnings and watches.
 - AI summaries are regenerated only when newly scraped data differs from latest stored records, so most cron ticks make zero API calls.
-- The Gantt page generates on demand — every click costs one Anthropic call. Inspect `/gantt` in the UI for the paste-text and use-latest-scraped flows.
+- The Gantt page generates on demand — every generation costs one Anthropic call; manual corrections in the bars editor do not.
 - Ably is used as pub/sub transport between backend and frontend for status and update events.
 - Container timezone is set to `Pacific/Auckland` so log timestamps match NZ wall clock; the NestJS logger is overridden to emit `DD/MM/YYYY, HH:mm:ss` via Luxon.
 
-## What changed vs the `original` branch
+## What's changed since the original NHIS project
 
-- **`@anthropic-ai/sdk` replaces `openai`** in `main-services/package.json`.
-- **`ai-generate.service.ts`** uses Anthropic's Messages API with `tool_choice: { type: 'tool', name: ... }` to force schema-conformant JSON. Public method signatures (`generateSevereWeatherOutlookSummary`, `generateThunderstormOutlookSummary`) are unchanged so cron and controller call sites still work.
-- **`OPENAI_API_KEY` becomes `ANTHROPIC_API_KEY`**, with an optional `ANTHROPIC_MODEL` override.
-- **New Gantt feature** — backend prompt + endpoint, plus a `/gantt` route in the UI that renders structured warnings as a canvas-based Gantt chart with N→S regional sorting, peak-intensity overlay on rain bars, and PNG export at 150/300 DPI.
-- **Bug fixes** for the Ably token endpoint URL handling under SSR, container timezone, and logger format.
+- **AI provider migrated from OpenAI to Anthropic Claude** — `ai-generate.service.ts` uses Anthropic's Messages API with `tool_choice: { type: 'tool', name: ... }` to force schema-conformant JSON. `OPENAI_API_KEY` → `ANTHROPIC_API_KEY`, with an optional `ANTHROPIC_MODEL` override.
+- **Gantt chart generator added and substantially extended**, including:
+  - Deterministic geographic (north–south) and severity sorting, enforced in code rather than left to the model
+  - A dedicated `road_snow` hazard type distinguishing route-specific Road Snowfall Warnings from regional Heavy Snow Watch/Warning, with colour and border conventions matching MetService's own yellow/orange/red severity scheme
+  - A manual bars editor for drag-and-drop reordering and hazard/severity correction, with auto-updated labels
+  - An "exclude road snowfall" toggle affecting both the on-screen chart and PNG export
+  - Peak-intensity overlay on rain bars, shown only where the source text gives explicit timing
+  - 150/300 DPI PNG export
+- **AI Summary panel** writes warning/watch type names in lowercase (e.g. "heavy rain warning"), distinct from the Title Case used in the Issued Warnings & Watches panel.
+- **Severe Weather Outlook revision history** extended from a same-day window to a rolling 5-day window, since this outlook is typically only issued once or twice a day and a same-day window rarely had more than one version to compare.
+- **Bug fixes**: Ably token endpoint URL handling under SSR, container timezone, Luxon-based logger format, a pnpm version mismatch between Docker build stages, and a corrupted Dockerfile line.
+
+If you're evaluating this work in detail, `git diff original..develop` remains the most accurate way to see the full scope of change.
 
 # Screenshots
 
 ## Meteorological Ai Scraping Tool Dashboard
 
-![image](https://github.com/user-attachments/assets/5d5c01a8-c0d1-446b-b629-3c56bfb63f65)
+<img width="1915" height="947" alt="Dashboard" src="https://github.com/user-attachments/assets/d5905da2-bebc-49d4-a335-a5a98a3da1ad" />
 
 ## Data Collection & Visualisation
 
@@ -199,13 +210,11 @@ docker compose down -v
 
 ## Outlooks revision comparison feature
 
-![image](https://github.com/user-attachments/assets/b7895fd3-cd36-4122-ab44-e52806292fb8)
+<img width="1429" height="536" alt="Revision" src="https://github.com/user-attachments/assets/feddee48-3e30-40c0-8b68-fda75929167a" />
 
 ## Gantt Chart Creation
 
 <img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/2fa241e9-581e-472b-a7c1-4e53ecee60d2" />
-
-## AI Generated content validation
 
 ## Acknowledgements
 
@@ -220,9 +229,10 @@ This project is built on top of the **Natural Hazard Intelligence Summary** plat
 - The AI extraction prompts (severe weather and thunderstorm) with their strict quote-as-evidence rules and Māori macron handling — these are kept verbatim in this branch
 - The React + TanStack Start dashboard UI and all its features (issued alerts timeline, status badges, revision comparison, AI content validation)
 
-**Modifications on this branch:**
-- Migrated the AI provider from OpenAI to Anthropic Claude, adapting `ai-generate.service.ts` to use tool-use for structured output instead of `zodResponseFormat`. The prompts and Zod schemas are unchanged.
-- Added a Gantt-chart generator: a new prompt + schema (`ganttPrompt.ts`, `GanttChartSchema`), backend endpoints, and a UI route at `/gantt` with paste-text + use-latest-scraped modes and 150/300 DPI PNG export.
-- Bug fixes for an Ably URL-parsing issue under TanStack Start SSR (deferred client construction with a no-op stub during server render), container timezone, and a custom Luxon-based logger format.
+**Modifications since the fork:**
+- Migrated the AI provider from OpenAI to Anthropic Claude
+- Built and substantially extended the Gantt-chart generator (see "What's changed" above)
+- Extended Severe Weather Outlook revision history to a rolling 5-day window
+- Various bug fixes and rebranding
 
-If you're evaluating this work, the most accurate way to see what was changed is `git diff original..anthropic` — the diff is small relative to the project as a whole.
+If you're evaluating this work, `git diff original..develop` is the most accurate way to see what's changed.
