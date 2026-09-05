@@ -216,8 +216,6 @@ If you're evaluating this work in detail, `git diff original..develop` remains t
 
 <img width="869" height="505" alt="Gantt_Chart" src="https://github.com/user-attachments/assets/2fa241e9-581e-472b-a7c1-4e53ecee60d2" />
 
-## AI Generated content validation
-
 ## Acknowledgements
 
 This project is built on top of the **Natural Hazard Intelligence Summary** platform created by **[Evan Chen (chen-wenyi)](https://github.com/chen-wenyi)** and licensed under the [MIT License](LICENSE).
