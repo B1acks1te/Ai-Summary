@@ -1,6 +1,6 @@
 services:
   main_services:
-    container_name: nhis-main-services
+    container_name: ${STACK_NAME}-main-services
     build:
       context: ./main-services
       dockerfile: Dockerfile
@@ -9,7 +9,7 @@ services:
         - action: rebuild
           path: ./main-services/src
     ports:
-      - '3000:3000'
+      - '${MAIN_SERVICES_PORT:-3000}:3000'
     restart: unless-stopped
     env_file:
       - .env
@@ -17,21 +17,21 @@ services:
       TZ: Pacific/Auckland
       LANG: en_NZ.UTF-8
     networks:
-      - nhis-network
+      - app-network
   scrape_services:
-    container_name: nhis-scrape-services
+    container_name: ${STACK_NAME}-scrape-services
     build:
       context: ./scrape-services
       dockerfile: Dockerfile
     ports:
-      - '4000:4000'
+      - '${SCRAPE_SERVICES_PORT:-4000}:4000'
     restart: unless-stopped
     environment:
       TZ: Pacific/Auckland
     networks:
-      - nhis-network
+      - app-network
   ui:
-    container_name: nhis-ui
+    container_name: ${STACK_NAME}-ui
     build:
       context: ./ui
       dockerfile: Dockerfile
@@ -40,24 +40,24 @@ services:
       - scrape_services
       - mongodb
     ports:
-      - '3001:3001'
+      - '${UI_PORT:-3001}:3001'
     env_file:
       - .env
     environment:
       TZ: Pacific/Auckland
     restart: unless-stopped
     networks:
-      - nhis-network
+      - app-network
   mongodb:
     image: mongo:latest
-    container_name: nhis-mongodb
+    container_name: ${STACK_NAME}-mongodb
     command:
       - --quiet
       - --logpath
       - /data/db/mongod.log
       - --logappend
     ports:
-      - '27017:27017'
+      - '${MONGODB_PORT:-27017}:27017'
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: password
@@ -66,9 +66,9 @@ services:
       - mongodb_data:/data/db
     restart: unless-stopped
     networks:
-      - nhis-network
+      - app-network
 networks:
-  nhis-network:
+  app-network:
     driver: bridge
 volumes:
   mongodb_data:
