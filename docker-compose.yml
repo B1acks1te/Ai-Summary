@@ -44,6 +44,8 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
+      args:
+        VITE_SHOW_DEV_BANNER: ${SHOW_DEV_BANNER:-false}
     depends_on:
       - main_services
       - scrape_services

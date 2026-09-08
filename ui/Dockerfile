@@ -14,6 +14,9 @@ RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 
+ARG VITE_SHOW_DEV_BANNER=false
+ENV VITE_SHOW_DEV_BANNER=$VITE_SHOW_DEV_BANNER
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
