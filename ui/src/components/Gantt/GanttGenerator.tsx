@@ -221,36 +221,6 @@ export function GanttGenerator() {
         </div>
       </details>
 
-      {snapshots && snapshots.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Auto-captured snapshots</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-gray-500 mb-2">
-              Automatically captured whenever issued alerts change. The
-              latest is shown by default — pick an older one to view it (and
-              try edits in the bars editor below, though those edits are
-              temporary and won't be saved back to the snapshot).
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {snapshots.map((snap, i) => (
-                <Button
-                  key={snap.id}
-                  size="sm"
-                  variant={
-                    selectedSnapshotId === snap.id ? 'default' : 'secondary'
-                  }
-                  onClick={() => selectSnapshot(snap)}
-                >
-                  {i === 0 ? 'Latest' : formatSnapshotTime(snap.insertedAt)}
-                </Button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
@@ -377,6 +347,36 @@ Northwest winds may approach warning criteria.`}
           </CardContent>
         </Card>
       </div>
+
+      {snapshots && snapshots.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Auto-captured snapshots</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <p className="text-xs text-gray-500">
+              Automatically captured whenever issued alerts change. The
+              latest is shown by default — pick an older one to view it (and
+              try edits in the bars editor below, though those edits are
+              temporary and won't be saved back to the snapshot).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {snapshots.map((snap, i) => (
+                <Button
+                  key={snap.id}
+                  size="sm"
+                  variant={
+                    selectedSnapshotId === snap.id ? 'default' : 'secondary'
+                  }
+                  onClick={() => selectSnapshot(snap)}
+                >
+                  {i === 0 ? 'Latest' : formatSnapshotTime(snap.insertedAt)}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {chart && (
         <GanttBarEditor bars={chart.bars} onChange={onBarsChange} />
