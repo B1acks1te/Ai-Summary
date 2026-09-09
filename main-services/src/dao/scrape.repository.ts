@@ -7,7 +7,9 @@ import {
   AISevereWeatherOutlookSummaryDocument,
   AIThunderstormOutlookSummaryDocument,
 } from 'src/services/ai-generate/typing';
+import type { GanttChart } from 'src/services/ai-generate/schema';
 import {
+  GanttSnapshotDoc,
   IssuedAlertEntriesDocument,
   SevereWeatherDoc,
   ThunderstormDoc,
@@ -19,6 +21,10 @@ const THUNDERSTORM_COLLECTION = 'thunderstorm_outlook';
 const AI_SEVERE_WEATHER_SUMMARY_COLLECTION =
   'ai_severe_weather_outlook_summary';
 const AI_THUNDERSTORM_SUMMARY_COLLECTION = 'ai_thunderstorm_outlook_summary';
+const GANTT_SNAPSHOTS_COLLECTION = 'gantt_snapshots';
+// Auto-captured on every issued-alert change. Kept small deliberately — this
+// is a rolling recent-history view, not a permanent archive.
+const MAX_GANTT_SNAPSHOTS = 5;
 
 @Injectable()
 export class ScrapeRepository {
@@ -166,5 +172,48 @@ export class ScrapeRepository {
       });
 
     return blocks.join('\n\n---\n\n');
+  }
+
+  // ------------------------------------------------------------
+  // GANTT SNAPSHOTS — auto-captured whenever issued alerts change.
+  // Rolling window of the most recent MAX_GANTT_SNAPSHOTS only; older
+  // ones are pruned on insert. Viewing/editing an old snapshot in the
+  // UI is a local, non-persisted operation — this repository never
+  // updates an existing snapshot document, only inserts and prunes.
+  // ------------------------------------------------------------
+  async insertGanttSnapshot(chart: GanttChart): Promise<void> {
+    const collection = this.mongoService.getCollection<GanttSnapshotDoc>(
+      GANTT_SNAPSHOTS_COLLECTION,
+    );
+
+    await collection.insertOne({
+      chart_title: chart.chart_title,
+      bars: chart.bars,
+      notes: chart.notes,
+      insertedAt: new Date(),
+    });
+
+    const all = await collection
+      .find({}, { sort: { insertedAt: -1 }, projection: { _id: 1 } })
+      .toArray();
+
+    if (all.length > MAX_GANTT_SNAPSHOTS) {
+      const staleIds = all
+        .slice(MAX_GANTT_SNAPSHOTS)
+        .map((doc) => new ObjectId(doc._id));
+      await collection.deleteMany({ _id: { $in: staleIds } });
+      this.logger.log(
+        `Pruned ${staleIds.length} old Gantt snapshot(s), keeping latest ${MAX_GANTT_SNAPSHOTS}.`,
+      );
+    }
+  }
+
+  async getGanttSnapshots(): Promise<WithId<GanttSnapshotDoc>[]> {
+    const collection = this.mongoService.getCollection<GanttSnapshotDoc>(
+      GANTT_SNAPSHOTS_COLLECTION,
+    );
+    return collection
+      .find({}, { sort: { insertedAt: -1 }, limit: MAX_GANTT_SNAPSHOTS })
+      .toArray();
   }
 }

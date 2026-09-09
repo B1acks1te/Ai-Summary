@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+\import { Injectable, Logger } from '@nestjs/common';
 import { Rest } from 'ably';
 import { XMLParser } from 'fast-xml-parser';
 import { intersection } from 'lodash';
@@ -373,6 +373,7 @@ export class ScrapeService {
             failed: false,
             stale: true,
           });
+          await this.captureGanttSnapshot();
         } else {
           this.logger.log(
             'Result: New day update detected. Inserting new entries.',
@@ -391,6 +392,7 @@ export class ScrapeService {
             failed: false,
             stale: true,
           });
+          await this.captureGanttSnapshot();
         }
       } else {
         this.logger.log('No existing data found. Inserting initial data.');
@@ -407,6 +409,7 @@ export class ScrapeService {
           failed: false,
           stale: true,
         });
+        await this.captureGanttSnapshot();
       }
       this.logger.log('*** Finished querying issued warnings and watches ***');
     } catch (error) {
@@ -532,6 +535,23 @@ export class ScrapeService {
 
     return updatedEntries;
   }
+  // Auto-capture a Gantt snapshot whenever issued alerts genuinely change.
+  // Self-contained (reads the just-inserted alerts back from Mongo), so it
+  // can be called identically from any of the three "new data" branches
+  // above. Failures here are logged and swallowed — a Gantt generation
+  // problem should never break alert processing itself.
+  private async captureGanttSnapshot() {
+    try {
+      const text = await this.scrapeRepository.getLatestIssuedAlertsAsText();
+      if (!text) return;
+      const chart = await this.aiGenerateService.generateGanttChart(text);
+      await this.scrapeRepository.insertGanttSnapshot(chart);
+      this.logger.log('Auto-captured a new Gantt snapshot.');
+    } catch (error) {
+      this.logger.error(`Failed to auto-capture Gantt snapshot: ${error}`);
+    }
+  }
+
   private async ablyPublishToClient({
     event,
     message,

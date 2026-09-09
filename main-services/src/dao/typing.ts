@@ -1,4 +1,5 @@
 import z from 'zod';
+import type { GanttBar } from '../services/ai-generate/schema';
 
 export type SevereWeatherDoc = {
   insertedAt: Date;
@@ -17,6 +18,13 @@ export type ThunderstormDoc = {
     issuedDate: string;
   }[];
   refIssuedDates: string[];
+};
+
+export type GanttSnapshotDoc = {
+  insertedAt: Date;
+  chart_title: string;
+  bars: GanttBar[];
+  notes: string[];
 };
 
 export type UpsertStatus = 'inserted' | 'unchanged';

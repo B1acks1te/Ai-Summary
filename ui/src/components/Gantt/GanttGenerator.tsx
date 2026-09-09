@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,8 +6,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   generateGanttFromInput,
   generateGanttFromLatest,
+  getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
-import type { GanttChart } from '@/types/gantt';
+import type { GanttChart, GanttSnapshot } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
@@ -17,6 +18,17 @@ import { GanttBarEditor } from './GanttBarEditor';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
+function formatSnapshotTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function GanttGenerator() {
   const [input, setInput] = useState('');
   const [chart, setChart] = useState<GanttChart | null>(null);
@@ -24,6 +36,14 @@ export function GanttGenerator() {
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState('');
   const [excludeRoadSnow, setExcludeRoadSnow] = useState(false);
+
+  // Auto-captured snapshots (last 5, newest first) — see captureGanttSnapshot
+  // on the backend. Viewing/editing one here is local-only: nothing written
+  // back is ever persisted to the snapshot itself.
+  const [snapshots, setSnapshots] = useState<GanttSnapshot[] | null>(null);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(
+    null,
+  );
 
   // Road-specific snow alerts (road_snow) are included by default. Filtering
   // is applied here — to both the on-screen chart and any PNG export — rather
@@ -37,11 +57,16 @@ export function GanttGenerator() {
     };
   }, [chart, excludeRoadSnow]);
 
-  const handleResult = (data: GanttChart, sourceText?: string) => {
+  const handleResult = (
+    data: GanttChart,
+    sourceText?: string,
+    fromSnapshotId?: string,
+  ) => {
     const sorted: GanttChart = {
       ...data,
       bars: sortBarsGeographically(data.bars),
     };
+    setSelectedSnapshotId(fromSnapshotId ?? null);
     setChart(sorted);
     setJsonText(JSON.stringify(sorted, null, 2));
     setStatus('success');
@@ -119,6 +144,33 @@ export function GanttGenerator() {
     downloadGanttPng(displayChart, dpi);
   };
 
+  const selectSnapshot = (snap: GanttSnapshot) => {
+    handleResult(
+      { chart_title: snap.chart_title, bars: snap.bars, notes: snap.notes },
+      undefined,
+      snap.id,
+    );
+    setStatusMsg(`Viewing auto-captured snapshot from ${formatSnapshotTime(snap.insertedAt)}. Edits here are temporary and won't be saved back to this snapshot.`);
+  };
+
+  // Load the last 5 auto-captured snapshots on mount, and show the latest
+  // one immediately if nothing has been generated yet — so the page always
+  // has something useful on it rather than an empty "Awaiting data" state.
+  useEffect(() => {
+    (async () => {
+      const resp = await getGanttSnapshots();
+      if (resp.ok && resp.snapshots) {
+        setSnapshots(resp.snapshots);
+        if (resp.snapshots.length > 0 && !chart) {
+          selectSnapshot(resp.snapshots[0]);
+        }
+      }
+    })();
+    // Only ever run once on mount — this is a one-time initial load, not a
+    // live subscription (the manual generate/edit flows manage state after).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="flex flex-col gap-4 p-6">
       <details
@@ -168,6 +220,36 @@ export function GanttGenerator() {
           </p>
         </div>
       </details>
+
+      {snapshots && snapshots.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Auto-captured snapshots</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-gray-500 mb-2">
+              Automatically captured whenever issued alerts change. The
+              latest is shown by default — pick an older one to view it (and
+              try edits in the bars editor below, though those edits are
+              temporary and won't be saved back to the snapshot).
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {snapshots.map((snap, i) => (
+                <Button
+                  key={snap.id}
+                  size="sm"
+                  variant={
+                    selectedSnapshotId === snap.id ? 'default' : 'secondary'
+                  }
+                  onClick={() => selectSnapshot(snap)}
+                >
+                  {i === 0 ? 'Latest' : formatSnapshotTime(snap.insertedAt)}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card>

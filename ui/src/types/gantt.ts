@@ -21,3 +21,10 @@ export type GanttChart = {
   bars: GanttBar[];
   notes: string[];
 };
+
+// An auto-captured historical Gantt chart (see the "Auto-captured" section
+// on the Gantt page). insertedAt is an ISO string over the wire.
+export type GanttSnapshot = GanttChart & {
+  id: string;
+  insertedAt: string;
+};
