@@ -1,4 +1,4 @@
-\import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Rest } from 'ably';
 import { XMLParser } from 'fast-xml-parser';
 import { intersection } from 'lodash';
