@@ -1,0 +1,32 @@
+name: Tag stable master
+
+# Auto-tags every commit that lands on master with a timestamped
+# "stable-*" tag. This gives ROLLBACK.md a reliable list of known-good
+# points to roll back to via Portainer, without anyone having to
+# remember to tag things manually.
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create stable tag
+        run: |
+          TAG="stable-$(date -u +'%Y-%m-%d-%H%M')"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Auto-tagged stable build from master ($GITHUB_SHA)"
+          git push origin "$TAG"
+          echo "Tagged $TAG"
