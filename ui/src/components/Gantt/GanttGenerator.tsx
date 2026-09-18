@@ -80,7 +80,7 @@ export function GanttGenerator() {
   const [jsonText, setJsonText] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState('');
-  const [visibleSeverities, setVisibleSeverities] = useState
+  const [visibleSeverities, setVisibleSeverities] = useState<
     Record<RegionalHazard, Set<SeverityFilterKey>>
   >(defaultVisibleSeverities());
   const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
