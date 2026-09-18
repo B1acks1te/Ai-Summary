@@ -103,7 +103,7 @@ export default function ThunderstormOutlook() {
           <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span>
               Source:{' '}
-              
+              <a
                 href="https://www.metservice.com/warnings/thunderstorm-outlook"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -144,7 +144,7 @@ export default function ThunderstormOutlook() {
         <p className="text-gray-500 text-xs">
           This section uses terminology for confidence, risk and chance provided
           by MetService
-          
+          <a
             href="https://about.metservice.com/about-severe-weather-warnings"
             target="_blank"
             rel="noopener noreferrer"

@@ -107,7 +107,7 @@ export default function SevereWeatherOutlook() {
               <div className="flex items-center gap-4 flex-wrap">
                 <span>
                   Source:{' '}
-                  
+                  <a
                     href="https://www.metservice.com/warnings/severe-weather-outlook"
                     target="_blank"
                     rel="noopener noreferrer"
@@ -150,7 +150,7 @@ export default function SevereWeatherOutlook() {
         <p className="text-gray-500 text-xs">
           This section uses terminology for confidence, risk and chance provided
           by MetService
-          
+          <a
             href="https://about.metservice.com/about-severe-weather-warnings"
             target="_blank"
             rel="noopener noreferrer"
