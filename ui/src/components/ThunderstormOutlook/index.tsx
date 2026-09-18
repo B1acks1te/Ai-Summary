@@ -86,24 +86,24 @@ export default function ThunderstormOutlook() {
           <ButtonGroup className="w-full flex">
             <Button
               variant={'outline'}
-              className="flex-1 text-black/65 h-12"
+              className="flex-1 min-w-0 text-black/65 h-12 px-2 text-xs sm:text-sm truncate"
               onClick={() => setActiveOutlookTab('severeWeatherOutlook')}
             >
               Severe Weather Outlook
             </Button>
             <Button
-              className="flex-1 h-12"
+              className="flex-1 min-w-0 h-12 px-2 text-xs sm:text-sm truncate"
               onClick={() => setActiveOutlookTab('thunderstormOutlook')}
             >
               Thunderstorm Outlook
             </Button>
           </ButtonGroup>
         </CardTitle>
-        <CardDescription className="mt-2 ml-1 flex justify-between items-center h-8">
-          <div className="flex items-center gap-4">
+        <CardDescription className="mt-2 ml-1 flex flex-wrap gap-2 justify-between items-center">
+          <div className="flex items-center gap-4 flex-wrap min-w-0">
             <span>
               Source:{' '}
-              <a
+              
                 href="https://www.metservice.com/warnings/thunderstorm-outlook"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -144,7 +144,7 @@ export default function ThunderstormOutlook() {
         <p className="text-gray-500 text-xs">
           This section uses terminology for confidence, risk and chance provided
           by MetService
-          <a
+          
             href="https://about.metservice.com/about-severe-weather-warnings"
             target="_blank"
             rel="noopener noreferrer"

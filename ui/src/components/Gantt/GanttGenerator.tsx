@@ -9,6 +9,7 @@ import {
   getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
 import type { GanttChart, GanttSnapshot } from '@/types/gantt';
+import type { GanttHazardType, GanttSeverity } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
@@ -17,6 +18,49 @@ import {
 import { GanttBarEditor } from './GanttBarEditor';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
+
+// The three "regional" hazard types share the same watch/orange/red severity
+// scale, so they get one filter row each. Road snowfall is filtered as a
+// single on/off toggle instead — it only ever appears with severity
+// "warning" (no colour) in practice.
+type RegionalHazard = 'rain' | 'wind' | 'snow';
+type SeverityFilterKey = 'watch' | 'orange_warning' | 'red_warning';
+
+const REGIONAL_HAZARDS: RegionalHazard[] = ['rain', 'wind', 'snow'];
+const SEVERITY_FILTER_KEYS: SeverityFilterKey[] = [
+  'watch',
+  'orange_warning',
+  'red_warning',
+];
+
+const HAZARD_FILTER_LABEL: Record<RegionalHazard, string> = {
+  rain: 'Rain',
+  wind: 'Wind',
+  snow: 'Snow',
+};
+
+const SEVERITY_FILTER_LABEL: Record<SeverityFilterKey, string> = {
+  watch: 'Watch',
+  orange_warning: 'Orange warning',
+  red_warning: 'Red warning',
+};
+
+// A bar's severity is "warning" (uncoloured) when the source didn't state a
+// colour — visually and for filtering purposes this is grouped with orange,
+// same as the render logic in GanttCanvas already treats it.
+function severityFilterKey(severity: GanttSeverity): SeverityFilterKey {
+  if (severity === 'watch') return 'watch';
+  if (severity === 'red_warning') return 'red_warning';
+  return 'orange_warning';
+}
+
+function defaultVisibleSeverities(): Record<RegionalHazard, Set<SeverityFilterKey>> {
+  return {
+    rain: new Set(SEVERITY_FILTER_KEYS),
+    wind: new Set(SEVERITY_FILTER_KEYS),
+    snow: new Set(SEVERITY_FILTER_KEYS),
+  };
+}
 
 function formatSnapshotTime(iso: string): string {
   const d = new Date(iso);
@@ -35,7 +79,22 @@ export function GanttGenerator() {
   const [jsonText, setJsonText] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState('');
-  const [excludeRoadSnow, setExcludeRoadSnow] = useState(false);
+  const [visibleSeverities, setVisibleSeverities] = useState
+    Record<RegionalHazard, Set<SeverityFilterKey>>
+  >(defaultVisibleSeverities());
+  const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
+
+  const toggleSeverity = (hazard: RegionalHazard, key: SeverityFilterKey) => {
+    setVisibleSeverities((prev) => {
+      const next = new Set(prev[hazard]);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return { ...prev, [hazard]: next };
+    });
+  };
 
   // Auto-captured snapshots (last 5, newest first) — see captureGanttSnapshot
   // on the backend. Viewing/editing one here is local-only: nothing written
@@ -45,17 +104,18 @@ export function GanttGenerator() {
     null,
   );
 
-  // Road-specific snow alerts (road_snow) are included by default. Filtering
-  // is applied here — to both the on-screen chart and any PNG export — rather
-  // than at generation time, so toggling it doesn't require a re-generation.
+  // Filtering is applied here — to both the on-screen chart and any PNG
+  // export — rather than at generation time, so toggling filters never
+  // requires a re-generation. Everything is visible by default.
   const displayChart = useMemo(() => {
     if (!chart) return chart;
-    if (!excludeRoadSnow) return chart;
-    return {
-      ...chart,
-      bars: chart.bars.filter((b) => b.hazard_type !== 'road_snow'),
-    };
-  }, [chart, excludeRoadSnow]);
+    const bars = chart.bars.filter((bar) => {
+      if (bar.hazard_type === 'road_snow') return showRoadSnowfall;
+      const key = severityFilterKey(bar.severity);
+      return visibleSeverities[bar.hazard_type as RegionalHazard].has(key);
+    });
+    return { ...chart, bars };
+  }, [chart, visibleSeverities, showRoadSnowfall]);
 
   const handleResult = (
     data: GanttChart,
@@ -200,10 +260,10 @@ export function GanttGenerator() {
               changes apply immediately to the chart and export.
             </li>
             <li>
-              Tick <span className="font-medium">Exclude road snowfall</span>{' '}
-              if you only want regional watches/warnings on the chart (route-specific
-              alerts like Milford Road are shown in purple; regional snow alerts
-              are shown in blue).
+              Use <span className="font-medium">Filter by hazard type &amp; severity</span>{' '}
+              below the chart to show or hide specific combinations (e.g. only
+              red warnings, or hide road-specific alerts like Milford Road —
+              shown in purple, separate from regional snow shown in blue).
             </li>
             <li>
               Download the chart as a PNG at{' '}
@@ -318,16 +378,55 @@ Northwest winds may approach warning criteria.`}
                   <Button variant="secondary" onClick={() => onDownload(150)}>
                     Download 150 DPI
                   </Button>
-                  <label className="flex items-center gap-1.5 text-sm text-gray-600 ml-1 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={excludeRoadSnow}
-                      onChange={(e) => setExcludeRoadSnow(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Exclude road snowfall
-                  </label>
                 </div>
+
+                <details className="border rounded-lg text-xs">
+                  <summary className="cursor-pointer select-none px-3 py-2 font-medium text-gray-600">
+                    Filter by hazard type &amp; severity
+                  </summary>
+                  <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
+                    {REGIONAL_HAZARDS.map((hazard) => (
+                      <div key={hazard} className="flex items-center gap-1.5 flex-wrap">
+                        <span className="w-10 shrink-0 font-medium text-gray-500">
+                          {HAZARD_FILTER_LABEL[hazard]}
+                        </span>
+                        {SEVERITY_FILTER_KEYS.map((key) => {
+                          const active = visibleSeverities[hazard].has(key);
+                          return (
+                            <button
+                              key={key}
+                              type="button"
+                              onClick={() => toggleSeverity(hazard, key)}
+                              aria-pressed={active}
+                              className={`px-2 py-1 rounded-full border transition-colors ${
+                                active
+                                  ? 'bg-gray-800 text-white border-gray-800'
+                                  : 'bg-white text-gray-400 border-gray-300'
+                              }`}
+                            >
+                              {SEVERITY_FILTER_LABEL[key]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="w-10 shrink-0" aria-hidden />
+                      <button
+                        type="button"
+                        onClick={() => setShowRoadSnowfall((v) => !v)}
+                        aria-pressed={showRoadSnowfall}
+                        className={`px-2 py-1 rounded-full border transition-colors ${
+                          showRoadSnowfall
+                            ? 'bg-gray-800 text-white border-gray-800'
+                            : 'bg-white text-gray-400 border-gray-300'
+                        }`}
+                      >
+                        Road snowfall
+                      </button>
+                    </div>
+                  </div>
+                </details>
                 {chart.notes?.length > 0 && (
                   <div className="text-xs text-gray-500">
                     <div className="font-semibold mb-1">Notes from extractor:</div>

@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { GanttBar, GanttHazardType, GanttSeverity } from '@/types/gantt';
 import { sortBarsGeographically } from './GanttCanvas';
@@ -114,7 +115,34 @@ function MoveButtons({
 }
 
 export function GanttBarEditor({ bars, onChange }: Props) {
+  // Drag-and-drop reordering — desktop only (sm+ grid rows). Native HTML5
+  // drag doesn't work reliably on touch, so the mobile card list below sm
+  // sticks to the ▲▼ move buttons only. Desktop rows get both: drag for
+  // fast rearranging, buttons for one-step precision.
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const dragIndexRef = useRef<number | null>(null);
+
   if (bars.length === 0) return null;
+
+  const handleDragStart = (index: number) => {
+    dragIndexRef.current = index;
+  };
+
+  const handleDragOver = (index: number, e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragOverIndex !== index) setDragOverIndex(index);
+  };
+
+  const handleDrop = (index: number) => {
+    const from = dragIndexRef.current;
+    setDragOverIndex(null);
+    dragIndexRef.current = null;
+    if (from === null || from === index) return;
+    const next = [...bars];
+    const [moved] = next.splice(from, 1);
+    next.splice(index, 0, moved);
+    onChange(next);
+  };
 
   const moveBar = (index: number, direction: -1 | 1) => {
     const target = index + direction;
@@ -145,8 +173,8 @@ export function GanttBarEditor({ bars, onChange }: Props) {
       <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">
         Bars — order, type &amp; severity{' '}
         <span className="text-xs font-normal text-gray-500">
-          ({bars.length} bar{bars.length === 1 ? '' : 's'} — use ▲▼ to
-          reorder, adjust hazard or severity)
+          ({bars.length} bar{bars.length === 1 ? '' : 's'} — drag to reorder
+          on desktop, or use ▲▼ (works everywhere); adjust hazard or severity)
         </span>
       </summary>
       <div className="px-4 pb-4 pt-1 border-t">
@@ -258,9 +286,27 @@ export function GanttBarEditor({ bars, onChange }: Props) {
                 return (
                   <li
                     key={`${bar.region}-${i}`}
-                    className={`${ROW_GRID} rounded border border-gray-200 p-2 text-sm bg-white`}
+                    draggable
+                    onDragStart={() => handleDragStart(i)}
+                    onDragOver={(e) => handleDragOver(i, e)}
+                    onDrop={() => handleDrop(i)}
+                    onDragEnd={() => setDragOverIndex(null)}
+                    className={`${ROW_GRID} rounded border p-2 text-sm bg-white cursor-grab active:cursor-grabbing transition-colors ${
+                      dragOverIndex === i
+                        ? 'border-blue-400 bg-blue-50'
+                        : 'border-gray-200'
+                    }`}
                   >
-                    <MoveButtons index={i} total={bars.length} onMove={moveBar} />
+                    <div className="flex flex-col items-center gap-1">
+                      <span
+                        className="text-gray-300 select-none leading-none"
+                        aria-hidden
+                        title="Drag to reorder"
+                      >
+                        ⠿
+                      </span>
+                      <MoveButtons index={i} total={bars.length} onMove={moveBar} />
+                    </div>
 
                     <span className="font-medium truncate" title={bar.region}>
                       {bar.region}
