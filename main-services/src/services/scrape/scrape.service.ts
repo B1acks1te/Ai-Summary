@@ -378,11 +378,17 @@ export class ScrapeService {
           this.logger.log(
             'Result: New day update detected. Inserting new entries.',
           );
-          // new day
+          // new day — still work out new/updated status against the previous
+          // record so the first update of the day gets its badges, but drop
+          // the 'removed' entries so yesterday's cleared alerts don't carry
+          // over (that's the point of the daily reset).
           await this.scrapeRepository.insertIssuedAlerts({
             updatedAt: new Date(feed.updated),
             updatedAtISO: feed.updated,
-            entries: issuedWarningsAndWatches,
+            entries: this.updateStatus(
+              issuedWarningsAndWatches,
+              latestRecord.entries,
+            ).filter((e) => e._status !== 'removed'),
             insertedAt: new Date(),
           });
           await this.ablyPublishToClient({
