@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react';
 import { Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -424,7 +431,7 @@ Northwest winds may approach warning criteria.`}
                     </Button>
 
                     {filterOpen && (
-                      <div className="absolute z-10 mt-1 w-72 border rounded-lg bg-white shadow-lg p-3 text-xs">
+                      <div className="absolute bottom-full left-0 z-20 mb-1 w-72 border rounded-lg bg-white shadow-lg p-3 text-xs">
                         <p className="font-medium mb-2">
                           Filter by hazard and severity
                         </p>
@@ -435,10 +442,8 @@ Northwest winds may approach warning criteria.`}
                           <span className="text-gray-400">Red</span>
 
                           {REGIONAL_HAZARDS.map((hazard) => (
-                            <>
-                              <span key={`${hazard}-label`}>
-                                {HAZARD_FILTER_LABEL[hazard]}
-                              </span>
+                            <Fragment key={hazard}>
+                              <span>{HAZARD_FILTER_LABEL[hazard]}</span>
                               {SEVERITY_FILTER_KEYS.map((key) => (
                                 <input
                                   key={`${hazard}-${key}`}
@@ -448,7 +453,7 @@ Northwest winds may approach warning criteria.`}
                                   className="h-3.5 w-3.5"
                                 />
                               ))}
-                            </>
+                            </Fragment>
                           ))}
 
                           <span>Road snowfall</span>
@@ -486,15 +491,18 @@ Northwest winds may approach warning criteria.`}
       </div>
 
       {snapshots && snapshots.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Auto-captured snapshots</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <p className="text-xs text-gray-500">
-              Automatically captured whenever issued alerts change. The
-              latest is shown by default — pick an older one to view it (and
-              try edits in the bars editor below, though those edits are
+        <details className="border rounded-lg bg-white text-sm">
+          <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">
+            Auto-captured snapshots{' '}
+            <span className="text-xs font-normal text-gray-500">
+              ({snapshots.length} saved — automatically captured whenever
+              issued alerts change)
+            </span>
+          </summary>
+          <div className="px-4 pb-4 pt-1 border-t flex flex-col gap-2">
+            <p className="text-xs text-gray-500 py-2">
+              The latest is shown by default — pick an older one to view it
+              (and try edits in the bars editor below, though those edits are
               temporary and won't be saved back to the snapshot).
             </p>
             <div className="flex flex-wrap gap-2">
@@ -511,8 +519,8 @@ Northwest winds may approach warning criteria.`}
                 </Button>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </details>
       )}
 
       {chart && (

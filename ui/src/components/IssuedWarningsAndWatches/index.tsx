@@ -156,6 +156,32 @@ function LoadingSkeleton() {
   );
 }
 
+// A "reissue" is when the latest revision is an exact replica of the one
+// before it: same area, period, chance of upgrade and full text. Needs at
+// least two revisions to compare. History is newest-first, so [0] is the
+// latest and [1] is the one it replaced. id/sent are deliberately ignored
+// since those always differ between revisions.
+function isReissue(history: IssuedAlert[]): boolean {
+  if (history.length < 2) return false;
+  const [latest, previous] = history;
+  const norm = (v: string | undefined) => (v ?? '').trim();
+  return (
+    norm(latest.areaDesc) === norm(previous.areaDesc) &&
+    norm(latest.onset) === norm(previous.onset) &&
+    norm(latest.expires) === norm(previous.expires) &&
+    norm(latest.ChanceOfUpgrade) === norm(previous.ChanceOfUpgrade) &&
+    norm(latest.ColourCode) === norm(previous.ColourCode) &&
+    norm(latest.event) === norm(previous.event) &&
+    norm(latest.headline) === norm(previous.headline) &&
+    norm(latest.severity) === norm(previous.severity) &&
+    norm(latest.urgency) === norm(previous.urgency) &&
+    norm(latest.certainty) === norm(previous.certainty) &&
+    norm(latest.responseType) === norm(previous.responseType) &&
+    norm(latest.description) === norm(previous.description) &&
+    norm(latest.instruction) === norm(previous.instruction)
+  );
+}
+
 function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
   const {
     id,
@@ -232,6 +258,15 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
                   className={'text-xs right-0 font-semibold'}
                 >
                   {_history.length}
+                </Badge>
+              )}
+              {isReissue(_history) && (
+                <Badge
+                  variant={'outline'}
+                  title="Latest revision is identical to the previous one"
+                  className="text-xs font-semibold border-amber-500 text-amber-600"
+                >
+                  Reissue
                 </Badge>
               )}
             </div>
