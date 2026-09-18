@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,7 +80,7 @@ export function GanttGenerator() {
   const [jsonText, setJsonText] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState('');
-  const [visibleSeverities, setVisibleSeverities] = useState<
+  const [visibleSeverities, setVisibleSeverities] = useState
     Record<RegionalHazard, Set<SeverityFilterKey>>
   >(defaultVisibleSeverities());
   const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
@@ -95,6 +96,32 @@ export function GanttGenerator() {
       return { ...prev, [hazard]: next };
     });
   };
+
+  // Filter popover — closes on outside click, same interaction pattern as
+  // any standard dropdown/menu. Badge count = how many hazard/severity
+  // combinations are currently hidden (0 when everything's visible, so the
+  // badge only appears once a filter is actually active).
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [filterOpen]);
+
+  const hiddenFilterCount = useMemo(() => {
+    const totalPossible = REGIONAL_HAZARDS.length * SEVERITY_FILTER_KEYS.length + 1;
+    const totalVisible =
+      REGIONAL_HAZARDS.reduce((sum, h) => sum + visibleSeverities[h].size, 0) +
+      (showRoadSnowfall ? 1 : 0);
+    return totalPossible - totalVisible;
+  }, [visibleSeverities, showRoadSnowfall]);
 
   // Auto-captured snapshots (last 5, newest first) — see captureGanttSnapshot
   // on the backend. Viewing/editing one here is local-only: nothing written
@@ -260,10 +287,11 @@ export function GanttGenerator() {
               changes apply immediately to the chart and export.
             </li>
             <li>
-              Use <span className="font-medium">Filter by hazard type &amp; severity</span>{' '}
-              below the chart to show or hide specific combinations (e.g. only
-              red warnings, or hide road-specific alerts like Milford Road —
-              shown in purple, separate from regional snow shown in blue).
+              Click <span className="font-medium">Filters</span> next to the
+              download buttons to show or hide specific hazard/severity
+              combinations (e.g. only red warnings, or hide road-specific
+              alerts like Milford Road — shown in purple, separate from
+              regional snow shown in blue).
             </li>
             <li>
               Download the chart as a PNG at{' '}
@@ -378,55 +406,65 @@ Northwest winds may approach warning criteria.`}
                   <Button variant="secondary" onClick={() => onDownload(150)}>
                     Download 150 DPI
                   </Button>
-                </div>
 
-                <details className="border rounded-lg text-xs">
-                  <summary className="cursor-pointer select-none px-3 py-2 font-medium text-gray-600">
-                    Filter by hazard type &amp; severity
-                  </summary>
-                  <div className="px-3 pb-3 pt-1 flex flex-col gap-2">
-                    {REGIONAL_HAZARDS.map((hazard) => (
-                      <div key={hazard} className="flex items-center gap-1.5 flex-wrap">
-                        <span className="w-10 shrink-0 font-medium text-gray-500">
-                          {HAZARD_FILTER_LABEL[hazard]}
+                  <div className="relative" ref={filterRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setFilterOpen((v) => !v)}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Filter size={14} />
+                      Filters
+                      {hiddenFilterCount > 0 && (
+                        <span className="bg-blue-100 text-blue-700 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                          {hiddenFilterCount}
                         </span>
-                        {SEVERITY_FILTER_KEYS.map((key) => {
-                          const active = visibleSeverities[hazard].has(key);
-                          return (
-                            <button
-                              key={key}
-                              type="button"
-                              onClick={() => toggleSeverity(hazard, key)}
-                              aria-pressed={active}
-                              className={`px-2 py-1 rounded-full border transition-colors ${
-                                active
-                                  ? 'bg-gray-800 text-white border-gray-800'
-                                  : 'bg-white text-gray-400 border-gray-300'
-                              }`}
-                            >
-                              {SEVERITY_FILTER_LABEL[key]}
-                            </button>
-                          );
-                        })}
+                      )}
+                    </Button>
+
+                    {filterOpen && (
+                      <div className="absolute z-10 mt-1 w-72 border rounded-lg bg-white shadow-lg p-3 text-xs">
+                        <p className="font-medium mb-2">
+                          Filter by hazard and severity
+                        </p>
+                        <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-2.5 gap-y-1.5 items-center">
+                          <span />
+                          <span className="text-gray-400">Watch</span>
+                          <span className="text-gray-400">Orange</span>
+                          <span className="text-gray-400">Red</span>
+
+                          {REGIONAL_HAZARDS.map((hazard) => (
+                            <>
+                              <span key={`${hazard}-label`}>
+                                {HAZARD_FILTER_LABEL[hazard]}
+                              </span>
+                              {SEVERITY_FILTER_KEYS.map((key) => (
+                                <input
+                                  key={`${hazard}-${key}`}
+                                  type="checkbox"
+                                  checked={visibleSeverities[hazard].has(key)}
+                                  onChange={() => toggleSeverity(hazard, key)}
+                                  className="h-3.5 w-3.5"
+                                />
+                              ))}
+                            </>
+                          ))}
+
+                          <span>Road snowfall</span>
+                          <input
+                            type="checkbox"
+                            checked={showRoadSnowfall}
+                            onChange={() => setShowRoadSnowfall((v) => !v)}
+                            className="h-3.5 w-3.5"
+                          />
+                          <span />
+                          <span />
+                        </div>
                       </div>
-                    ))}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="w-10 shrink-0" aria-hidden />
-                      <button
-                        type="button"
-                        onClick={() => setShowRoadSnowfall((v) => !v)}
-                        aria-pressed={showRoadSnowfall}
-                        className={`px-2 py-1 rounded-full border transition-colors ${
-                          showRoadSnowfall
-                            ? 'bg-gray-800 text-white border-gray-800'
-                            : 'bg-white text-gray-400 border-gray-300'
-                        }`}
-                      >
-                        Road snowfall
-                      </button>
-                    </div>
+                    )}
                   </div>
-                </details>
+                </div>
                 {chart.notes?.length > 0 && (
                   <div className="text-xs text-gray-500">
                     <div className="font-semibold mb-1">Notes from extractor:</div>
