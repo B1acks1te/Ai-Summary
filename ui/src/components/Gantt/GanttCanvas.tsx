@@ -81,10 +81,16 @@ const STYLES = {
 // ─────────────────────────────────────────────────────────────
 // GEOGRAPHIC SORT (north → south) — verbatim from reference
 // ─────────────────────────────────────────────────────────────
-// Anything NOT in these lists sorts to the bottom of the chart (then by
-// severity, then source order), so new region/road names need adding here.
-// Matching is exact first, then substring, so "Crown Range Road" matches
-// 'crown range'.
+// How a bar is placed, in order:
+//   1. Its region name matches an entry in the known lists below → that
+//      entry's position. Names are compared after normalising (see
+//      normaliseName), so apostrophe style, hyphens, brackets, macrons and
+//      spacing don't matter. Matching is exact first, then substring, so
+//      "Crown Range Road (SH8)" matches 'crown range'.
+//   2. Not in the lists, but the AI supplied a latitude for the bar → it is
+//      slotted in north → south by latitude among the known places (see
+//      positionFromLatitude).
+//   3. Neither → bottom of the chart (then by severity, then source order).
 //
 // The lists are kept separate so they're easy to maintain, but they are merged
 // into ONE north → south order below — the chart still interleaves roads with
@@ -102,7 +108,6 @@ const REGIONS_NORTH_TO_SOUTH = [
   'taumarunui',
   'gisborne',
   "hawke's bay",
-  'hawkes bay',
   'taranaki',
   'taranaki maunga',
   'taihape',
@@ -148,13 +153,74 @@ const ROADS_NORTH_TO_SOUTH: { name: string; after: string }[] = [
   { name: 'rimutaka hill road', after: 'hutt valley' },
   { name: 'lewis pass', after: 'kaikoura' },
   { name: "arthur's pass", after: 'westland' },
-  { name: 'arthurs pass', after: "arthur's pass" },
   { name: 'porters pass', after: 'canterbury' },
   { name: 'haast pass', after: 'porters pass' },
   { name: 'lindis pass', after: 'timaru' },
   { name: 'crown range', after: 'lindis pass' },
   { name: 'milford road', after: 'otago' },
 ];
+
+// Approximate latitude (degrees, negative = south) of each known entry above.
+// Only used as reference points when slotting in a place that ISN'T in the
+// lists (see positionFromLatitude), so rough is fine. An entry missing from
+// here still sorts correctly, it just isn't used as a reference point.
+const KNOWN_LATITUDES: Record<string, number> = {
+  northland: -35.5,
+  'great barrier island': -36.2,
+  auckland: -36.85,
+  'coromandel peninsula': -36.9,
+  waikato: -37.8,
+  'bay of plenty': -37.9,
+  taupo: -38.7,
+  taumarunui: -38.9,
+  gisborne: -38.66,
+  "hawke's bay": -39.6,
+  taranaki: -39.3,
+  'taranaki maunga': -39.3,
+  taihape: -39.68,
+  whanganui: -39.93,
+  manawatu: -40.3,
+  horowhenua: -40.6,
+  'kapiti coast': -40.9,
+  kapiti: -40.9,
+  porirua: -41.14,
+  wellington: -41.29,
+  'hutt valley': -41.2,
+  wairarapa: -41.0,
+  'kaweka ranges': -39.3,
+  'ruahine ranges': -39.9,
+  'tararua range': -40.8,
+  'tararua district': -40.4,
+  buller: -41.75,
+  grey: -42.45,
+  nelson: -41.27,
+  tasman: -41.3,
+  motueka: -41.11,
+  'richmond ranges': -41.6,
+  marlborough: -41.5,
+  'marlborough sounds': -41.2,
+  kaikoura: -42.4,
+  westland: -43.3,
+  canterbury: -43.7,
+  timaru: -44.4,
+  otago: -45.3,
+  dunedin: -45.87,
+  clutha: -46.2,
+  southland: -46.0,
+  fiordland: -45.4,
+  'stewart island': -47.0,
+  // roads / passes
+  'napier-taupo road': -39.1,
+  'desert road': -39.2,
+  'rimutaka hill road': -41.2,
+  'lewis pass': -42.38,
+  "arthur's pass": -42.94,
+  'porters pass': -43.3,
+  'haast pass': -44.1,
+  'lindis pass': -44.6,
+  'crown range': -44.9,
+  'milford road': -45.0,
+};
 
 function mergeRegionAndRoadOrder(
   regions: string[],
@@ -174,16 +240,117 @@ const REGION_ORDER = mergeRegionAndRoadOrder(
   ROADS_NORTH_TO_SOUTH,
 );
 
-function getRegionIndex(regionName: string) {
-  const lower = regionName.toLowerCase();
-  for (let i = 0; i < REGION_ORDER.length; i++) {
-    if (lower === REGION_ORDER[i]) return i;
+// Make names comparable regardless of how they were typed, so
+// "Arthur's Pass", "Arthur’s Pass" (curly), "Arthur`s Pass", "ARTHURS PASS" and
+// "Arthur's Pass (SH73)" all reduce to a matching form:
+//   - accents / macrons removed (Taupō → taupo)
+//   - every apostrophe style dropped entirely (hawke's = hawkes)
+//   - hyphens, dashes, brackets, commas etc. become spaces, runs collapsed
+// The apostrophe characters are written as \u escapes on purpose so this
+// still works if the file's encoding ever gets mangled.
+function normaliseName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\u0027\u2018\u2019\u201B\u02BC\u0060\u00B4\u2032]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+const NORMALISED_ORDER = REGION_ORDER.map(normaliseName);
+
+// Reference points for latitude placement: known entries that have a latitude.
+const LATITUDE_ANCHORS: { index: number; lat: number }[] = (() => {
+  const latByName = new Map(
+    Object.entries(KNOWN_LATITUDES).map(([name, lat]) => [
+      normaliseName(name),
+      lat,
+    ]),
+  );
+  const anchors: { index: number; lat: number }[] = [];
+  NORMALISED_ORDER.forEach((name, index) => {
+    const lat = latByName.get(name);
+    if (typeof lat === 'number') anchors.push({ index, lat });
+  });
+  return anchors;
+})();
+
+// Index of the matching known entry, or null if the name isn't in the lists.
+// Exact match wins. Otherwise the MOST SPECIFIC (longest) entry contained in
+// the name, so "Napier-Taupo Road (SH5)" matches 'napier-taupo road' rather
+// than the shorter 'taupo'. Last resort: the name is a shortened form of an
+// entry (e.g. 'kapiti' inside 'kapiti coast').
+function getKnownRegionIndex(regionName: string): number | null {
+  const name = normaliseName(regionName);
+  if (!name) return null;
+
+  const exact = NORMALISED_ORDER.indexOf(name);
+  if (exact !== -1) return exact;
+
+  let best: number | null = null;
+  for (let i = 0; i < NORMALISED_ORDER.length; i++) {
+    if (
+      name.includes(NORMALISED_ORDER[i]) &&
+      (best === null || NORMALISED_ORDER[i].length > NORMALISED_ORDER[best].length)
+    ) {
+      best = i;
+    }
   }
-  for (let i = 0; i < REGION_ORDER.length; i++) {
-    if (lower.includes(REGION_ORDER[i]) || REGION_ORDER[i].includes(lower))
-      return i;
+  if (best !== null) return best;
+
+  for (let i = 0; i < NORMALISED_ORDER.length; i++) {
+    if (NORMALISED_ORDER[i].includes(name)) return i;
   }
-  return REGION_ORDER.length;
+  return null;
+}
+
+// Slot an unlisted place in by latitude. Tries every gap in the known list and
+// picks the one where the fewest known places would be out of north → south
+// order relative to the new place (places before the gap should be further
+// north, places after it further south). Counting "misfits" rather than just
+// taking the nearest latitude keeps this right even where the list isn't
+// strictly latitude-ordered. Ties go to the gap nearest in latitude. The tiny
+// latitude term keeps several unlisted places in the same gap in proper
+// north → south order; it is far too small to jump past a known entry.
+function positionFromLatitude(lat: number | undefined): number {
+  if (
+    typeof lat !== 'number' ||
+    !Number.isFinite(lat) ||
+    LATITUDE_ANCHORS.length === 0
+  ) {
+    return REGION_ORDER.length; // no usable latitude → bottom, as before
+  }
+
+  let bestGap = 0;
+  let bestCost = Infinity;
+  let bestDistance = Infinity;
+  for (let gap = 0; gap <= LATITUDE_ANCHORS.length; gap++) {
+    let cost = 0;
+    for (let i = 0; i < LATITUDE_ANCHORS.length; i++) {
+      const anchorLat = LATITUDE_ANCHORS[i].lat;
+      if (i < gap ? anchorLat < lat : anchorLat > lat) cost++;
+    }
+    // tie-break: prefer the gap whose entry directly above is closest in
+    // latitude to the new place
+    const distance =
+      gap > 0 ? Math.abs(LATITUDE_ANCHORS[gap - 1].lat - lat) : Infinity;
+    if (cost < bestCost || (cost === bestCost && distance < bestDistance)) {
+      bestCost = cost;
+      bestDistance = distance;
+      bestGap = gap;
+    }
+  }
+
+  // sit just after the known entry above the gap (or before everything)
+  const above = bestGap > 0 ? LATITUDE_ANCHORS[bestGap - 1].index : -1;
+  return above + 0.5 - lat * 0.0001;
+}
+
+function getBarPosition(bar: GanttBar): number {
+  const known = getKnownRegionIndex(bar.region);
+  if (known !== null) return known;
+  return positionFromLatitude(bar.latitude);
 }
 
 // Severity/hazard tie-break within the same region — guarantees warnings
@@ -206,7 +373,7 @@ const HAZARD_ORDER: Record<string, number> = {
 export function sortBarsGeographically(bars: GanttBar[]): GanttBar[] {
   const tagged = bars.map((b, i) => ({
     bar: b,
-    geoIndex: getRegionIndex(b.region),
+    geoIndex: getBarPosition(b),
     severityIndex: SEVERITY_ORDER[b.severity] ?? 99,
     hazardIndex: HAZARD_ORDER[b.hazard_type] ?? 99,
     originalIndex: i,

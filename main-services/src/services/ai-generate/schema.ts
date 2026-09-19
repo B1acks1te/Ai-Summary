@@ -80,6 +80,16 @@ const GanttBarSchema = z.object({
   end: z.string(),
   peak_start: z.string().optional(),
   peak_end: z.string().optional(),
+  // Approximate latitude of the centre of the location (negative in NZ). Used
+  // by the UI to slot locations that aren't in its known list into the right
+  // north-to-south position. Optional so a missing value never fails the whole
+  // chart.
+  latitude: z
+    .number()
+    .optional()
+    .describe(
+      'Approximate decimal latitude of the centre of the location, negative for NZ (e.g. Wellington -41.29, Lewis Pass -42.38, Stewart Island -47.0). For a road or pass use the midpoint of the named road.',
+    ),
 });
 
 export const GanttChartSchema = z.object({

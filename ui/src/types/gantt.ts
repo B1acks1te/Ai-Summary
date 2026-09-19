@@ -14,6 +14,11 @@ export type GanttBar = {
   end: string;
   peak_start?: string;
   peak_end?: string;
+  // Approximate latitude of the location's centre (negative in NZ), supplied
+  // by the AI. Only used to place locations that aren't in the known
+  // north-to-south list. Optional: older snapshots and hand-added bars won't
+  // have it.
+  latitude?: number;
 };
 
 export type GanttChart = {
