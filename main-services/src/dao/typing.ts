@@ -78,6 +78,10 @@ export type IssuedAlert = {
   areaDesc: string;
   _status: 'removed' | 'updated' | 'new' | '';
   _history: IssuedAlert[];
+  // IDs of the alerts this one says it replaces (from the CAP `references`
+  // field). Kept even when MetService no longer serves those old alerts, so
+  // status can still be linked to the previous record.
+  _replaces?: string[];
   ColourCode?: string;
   ChanceOfUpgrade?: string;
 };

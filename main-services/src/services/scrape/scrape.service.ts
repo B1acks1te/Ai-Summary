@@ -491,7 +491,18 @@ export class ScrapeService {
       ChanceOfUpgrade: this.getChanceOfUpgrade(alert),
       _status: '',
       _history,
+      _replaces: this.getReferencedIds(alert),
     };
+  }
+  // references format: "sender,identifier,sent", space-separated if there is
+  // more than one. Returns just the identifiers.
+  private getReferencedIds(alert: Alert): string[] {
+    if (!alert.references) return [];
+    return alert.references
+      .trim()
+      .split(/\s+/)
+      .map((ref) => ref.split(',')[1])
+      .filter((id): id is string => Boolean(id));
   }
   private getColourCode(alert: Alert): string | undefined {
     return alert.info.parameter.find((p) => p.valueName === 'ColourCode')
@@ -507,31 +518,56 @@ export class ScrapeService {
   ): IssuedAlert[] {
     const newIds = newEntries.map((e) => e.id);
     const oldIds = oldEntries.map((e) => e.id);
+    const oldById = new Map(oldEntries.map((e) => [e.id, e]));
 
     this.logger.log('New IDs:', newIds);
     this.logger.log('Old IDs:', oldIds);
 
     const updatedEntries: IssuedAlert[] = newEntries.map((entry) => {
-      if (!oldIds.includes(entry.id)) {
-        if (
-          intersection(
-            oldIds,
-            entry._history.map((h) => h.id),
-          ).length > 0
-        ) {
-          // oldIds exist in entry history ids
-          return { ...entry, _status: 'updated' };
-        } else {
-          return { ...entry, _status: 'new' };
+      if (oldIds.includes(entry.id)) {
+        return entry;
+      }
+
+      const historyIds = entry._history.map((h) => h.id);
+      const replacedIds = entry._replaces ?? [];
+      // An old alert can be linked either through the history chain or, when
+      // MetService no longer serves the old alert (so the chain can't be
+      // walked), through the `references` on the new alert itself.
+      const linkedOldIds = intersection(oldIds, [
+        ...historyIds,
+        ...replacedIds,
+      ]);
+
+      if (linkedOldIds.length === 0) {
+        return { ...entry, _status: 'new' };
+      }
+
+      // Splice in any linked old alert the history chain couldn't reach, so
+      // the timeline (and Reissue check) still see the previous revision.
+      const history = [...entry._history];
+      for (const oldId of linkedOldIds) {
+        if (historyIds.includes(oldId)) continue;
+        const oldEntry = oldById.get(oldId);
+        if (!oldEntry) continue;
+        const oldChain = oldEntry._history.length
+          ? oldEntry._history
+          : [{ ...oldEntry, _history: [], _status: '' as const }];
+        for (const h of oldChain) {
+          if (!history.some((x) => x.id === h.id)) history.push(h);
         }
       }
-      return entry;
+      history.sort(
+        (a, b) => new Date(b.sent).getTime() - new Date(a.sent).getTime(),
+      );
+
+      return { ...entry, _history: history, _status: 'updated' };
     });
 
-    const allIds = [
-      ...newIds,
-      ...newEntries.flatMap(({ _history }) => _history.map((h) => h.id)),
-    ];
+    const allIds = updatedEntries.flatMap((e) => [
+      e.id,
+      ...e._history.map((h) => h.id),
+      ...(e._replaces ?? []),
+    ]);
 
     oldEntries
       .filter((entry) => !allIds.includes(entry.id))
