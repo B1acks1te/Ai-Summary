@@ -190,6 +190,10 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
     // keep property to avoid changing shape
   } = issuedAlert;
 
+  // A reissue is technically an "updated" alert (new ID replacing the old
+  // one) but nothing meaningful changed, so show Reissue instead of Updated.
+  const reissue = isReissue(_history);
+
   const scrollIntoViewRef = useRef<HTMLDivElement | null>(null);
 
   const activeAlertReference = useStore(
@@ -232,7 +236,7 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
               {formatUTCToNZDate(new Date(sent))}
             </span>
             <div className="flex gap-1 justify-center items-center">
-              {_status && (
+              {_status && !(reissue && _status === 'updated') && (
                 <Badge
                   variant={'outline'}
                   className={cn(
@@ -254,7 +258,7 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
                   {_history.length}
                 </Badge>
               )}
-              {isReissue(_history) && (
+              {reissue && (
                 <Badge
                   variant={'outline'}
                   title="No change to area, period, chance of upgrade or severity"
