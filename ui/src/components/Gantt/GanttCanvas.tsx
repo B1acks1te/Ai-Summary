@@ -81,7 +81,17 @@ const STYLES = {
 // ─────────────────────────────────────────────────────────────
 // GEOGRAPHIC SORT (north → south) — verbatim from reference
 // ─────────────────────────────────────────────────────────────
-const REGION_ORDER = [
+// Anything NOT in these lists sorts to the bottom of the chart (then by
+// severity, then source order), so new region/road names need adding here.
+// Matching is exact first, then substring, so "Crown Range Road" matches
+// 'crown range'.
+//
+// The lists are kept separate so they're easy to maintain, but they are merged
+// into ONE north → south order below — the chart still interleaves roads with
+// the regions they run through, exactly as if it were a single list.
+
+// Regions and places, north → south.
+const REGIONS_NORTH_TO_SOUTH = [
   'northland',
   'great barrier island',
   'auckland',
@@ -122,10 +132,47 @@ const REGION_ORDER = [
   'canterbury',
   'timaru',
   'otago',
+  'dunedin',
+  'clutha',
   'southland',
   'fiordland',
   'stewart island',
 ];
+
+// Roads / passes, north → south. `after` is the entry each one sits directly
+// after in the merged order (a region above, or an earlier road in this list).
+// To add a road: add a line here anchored to the right neighbour.
+const ROADS_NORTH_TO_SOUTH: { name: string; after: string }[] = [
+  { name: 'napier-taupo road', after: 'gisborne' },
+  { name: 'desert road', after: 'napier-taupo road' },
+  { name: 'rimutaka hill road', after: 'hutt valley' },
+  { name: 'lewis pass', after: 'kaikoura' },
+  { name: "arthur's pass", after: 'westland' },
+  { name: 'arthurs pass', after: "arthur's pass" },
+  { name: 'porters pass', after: 'canterbury' },
+  { name: 'haast pass', after: 'porters pass' },
+  { name: 'lindis pass', after: 'timaru' },
+  { name: 'crown range', after: 'lindis pass' },
+  { name: 'milford road', after: 'otago' },
+];
+
+function mergeRegionAndRoadOrder(
+  regions: string[],
+  roads: { name: string; after: string }[],
+): string[] {
+  const merged = [...regions];
+  for (const road of roads) {
+    const at = merged.indexOf(road.after);
+    // unknown anchor: put it at the end rather than crash
+    merged.splice(at === -1 ? merged.length : at + 1, 0, road.name);
+  }
+  return merged;
+}
+
+const REGION_ORDER = mergeRegionAndRoadOrder(
+  REGIONS_NORTH_TO_SOUTH,
+  ROADS_NORTH_TO_SOUTH,
+);
 
 function getRegionIndex(regionName: string) {
   const lower = regionName.toLowerCase();
