@@ -523,29 +523,64 @@ export class ScrapeService {
     this.logger.log('New IDs:', newIds);
     this.logger.log('Old IDs:', oldIds);
 
-    const updatedEntries: IssuedAlert[] = newEntries.map((entry) => {
-      if (oldIds.includes(entry.id)) {
-        return entry;
-      }
-
-      const historyIds = entry._history.map((h) => h.id);
-      const replacedIds = entry._replaces ?? [];
-      // An old alert can be linked either through the history chain or, when
-      // MetService no longer serves the old alert (so the chain can't be
-      // walked), through the `references` on the new alert itself.
-      const linkedOldIds = intersection(oldIds, [
-        ...historyIds,
-        ...replacedIds,
+    // Pass 1: link each new alert to old alerts by ID. That can be through
+    // the history chain or, when MetService no longer serves an old alert (so
+    // the chain can't be walked), through the `references` on the new alert.
+    const linked: string[][] = newEntries.map((entry) => {
+      if (oldIds.includes(entry.id)) return [];
+      return intersection(oldIds, [
+        ...entry._history.map((h) => h.id),
+        ...(entry._replaces ?? []),
       ]);
+    });
 
-      if (linkedOldIds.length === 0) {
+    // Pass 2: fallback for alerts still unlinked. MetService sometimes
+    // reissues an alert twice in quick succession, so the new alert
+    // references an intermediate one we never stored and the ID chain has a
+    // gap. If an old alert (not already claimed, not removed) has the same
+    // event and area, treat the new alert as its continuation.
+    const norm = (v: string | undefined) => (v ?? '').trim().toLowerCase();
+    const contentKey = (e: IssuedAlert) =>
+      `${norm(e.event)}|${norm(e.areaDesc)}`;
+    const claimed = new Set(linked.flat());
+    const candidates = oldEntries.filter(
+      (o) =>
+        o._status !== 'removed' && !newIds.includes(o.id) && !claimed.has(o.id),
+    );
+    newEntries.forEach((entry, i) => {
+      if (oldIds.includes(entry.id) || linked[i].length > 0) return;
+      const idx = candidates.findIndex(
+        (o) => contentKey(o) === contentKey(entry),
+      );
+      if (idx === -1) return;
+      linked[i] = [candidates[idx].id];
+      candidates.splice(idx, 1);
+    });
+
+    const updatedEntries: IssuedAlert[] = newEntries.map((entry, i) => {
+      if (oldIds.includes(entry.id)) {
+        // Already stored. Keep any history we spliced in on an earlier update
+        // that the ID chain can't rebuild (the feed alone only gives us the
+        // chain), otherwise the previous revision would vanish next update.
+        const prior = oldById.get(entry.id);
+        const kept = (prior?._history ?? []).filter(
+          (h) => !entry._history.some((x) => x.id === h.id),
+        );
+        if (kept.length === 0) return entry;
+        const history = [...entry._history, ...kept].sort(
+          (a, b) => new Date(b.sent).getTime() - new Date(a.sent).getTime(),
+        );
+        return { ...entry, _history: history };
+      }
+      if (linked[i].length === 0) {
         return { ...entry, _status: 'new' };
       }
 
-      // Splice in any linked old alert the history chain couldn't reach, so
+      // Splice in any linked old alert the history chain didn't reach, so
       // the timeline (and Reissue check) still see the previous revision.
+      const historyIds = entry._history.map((h) => h.id);
       const history = [...entry._history];
-      for (const oldId of linkedOldIds) {
+      for (const oldId of linked[i]) {
         if (historyIds.includes(oldId)) continue;
         const oldEntry = oldById.get(oldId);
         if (!oldEntry) continue;
