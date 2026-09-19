@@ -101,7 +101,7 @@ export function AlertHistory({ history }: { history: IssuedAlert[] }) {
                 </span>
               </div>
               <div>
-                <span className="font-bold">ChanceOfUpgrade: </span>
+                <span className="font-bold">Chance Of Upgrade: </span>
                 <span>
                   <DiffText
                     current={i.ChanceOfUpgrade || 'N/A'}

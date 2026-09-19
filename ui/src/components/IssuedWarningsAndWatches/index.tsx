@@ -279,7 +279,7 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
             <span>{getPeriodDescription(onset, expires)}</span>
           </div>
           <div>
-            <span className="font-bold">ChanceOfUpgrade: </span>
+            <span className="font-bold">Chance Of sUpgrade: </span>
             <span>{ChanceOfUpgrade || 'N/A'}</span>
           </div>
 
