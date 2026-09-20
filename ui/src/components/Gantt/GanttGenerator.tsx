@@ -49,9 +49,13 @@ const HAZARD_FILTER_LABEL: Record<RegionalHazard, string> = {
 
 const SEVERITY_FILTER_LABEL: Record<SeverityFilterKey, string> = {
   watch: 'Watch',
-  orange_warning: 'Orange warning',
-  red_warning: 'Red warning',
+  orange_warning: 'Orange Warning',
+  red_warning: 'Red Warning',
 };
+
+// localStorage key for whether the "How to use this page" panel is open, so a
+// choice to minimise it is remembered across refreshes (per browser).
+const HOW_TO_STORAGE_KEY = 'gantt-how-to-open';
 
 // A bar's severity is "warning" (uncoloured) when the source didn't state a
 // colour — visually and for filtering purposes this is grouped with orange,
@@ -141,6 +145,29 @@ export function GanttGenerator() {
   // newest snapshot is then stale (snapshots are only captured while alerts
   // exist), so the chart area shows a holding message instead of it.
   const [noActiveAlerts, setNoActiveAlerts] = useState(false);
+
+  // "How to use this page": open by default (including on the server render),
+  // but once someone minimises it that choice is remembered and applied on the
+  // next visit. Read after mount because localStorage doesn't exist during SSR.
+  const [howToOpen, setHowToOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(HOW_TO_STORAGE_KEY) === 'false') {
+        setHowToOpen(false);
+      }
+    } catch {
+      // storage blocked (e.g. private mode) — just stay open
+    }
+  }, []);
+  const toggleHowTo = () => {
+    const next = !howToOpen;
+    setHowToOpen(next);
+    try {
+      window.localStorage.setItem(HOW_TO_STORAGE_KEY, String(next));
+    } catch {
+      // storage blocked — the toggle still works, it just isn't remembered
+    }
+  };
 
   // Filtering is applied here — to both the on-screen chart and any PNG
   // export — rather than at generation time, so toggling filters never
@@ -290,10 +317,17 @@ export function GanttGenerator() {
   return (
     <div className="flex flex-col gap-4 p-6">
       <details
-        open
+        open={howToOpen}
         className="border rounded-lg bg-blue-50/50 border-blue-100 text-sm"
       >
-        <summary className="cursor-pointer select-none font-medium px-4 py-2.5 text-blue-900">
+        <summary
+          onClick={(e) => {
+            // controlled: we own the open state so it can be remembered
+            e.preventDefault();
+            toggleHowTo();
+          }}
+          className="cursor-pointer select-none font-medium px-4 py-2.5 text-blue-900"
+        >
           How to use this page
         </summary>
         <div className="px-4 pb-4 pt-1 text-gray-700">
@@ -453,15 +487,17 @@ Northwest winds may approach warning criteria.`}
                     </Button>
 
                     {filterOpen && (
-                      <div className="absolute bottom-full left-0 z-20 mb-1 w-72 border rounded-lg bg-white shadow-lg p-3 text-xs">
+                      <div className="absolute bottom-full left-0 z-20 mb-1 w-[22rem] max-w-[90vw] border rounded-lg bg-white shadow-lg p-3 text-xs">
                         <p className="font-medium mb-2">
                           Filter by hazard and severity
                         </p>
                         <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-2.5 gap-y-1.5 items-center">
                           <span />
-                          <span className="text-gray-400">Watch</span>
-                          <span className="text-gray-400">Orange</span>
-                          <span className="text-gray-400">Red</span>
+                          {SEVERITY_FILTER_KEYS.map((key) => (
+                            <span key={key} className="text-gray-400">
+                              {SEVERITY_FILTER_LABEL[key]}
+                            </span>
+                          ))}
 
                           {REGIONAL_HAZARDS.map((hazard) => (
                             <Fragment key={hazard}>
