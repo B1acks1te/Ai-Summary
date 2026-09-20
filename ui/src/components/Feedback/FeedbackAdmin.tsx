@@ -212,7 +212,27 @@ export function FeedbackAdmin() {
       }
     } else {
       setItems(null);
-      setError(resp.error || 'Could not load feedback.');
+      if (resp.error === 'Unauthorized') {
+        setError("That password isn't right.");
+        try {
+          window.sessionStorage.removeItem(KEY_STORAGE);
+        } catch {
+          // ignore
+        }
+      } else {
+        setError(resp.error || 'Could not load feedback.');
+      }
+    }
+  };
+
+  const signOut = () => {
+    setItems(null);
+    setAdminKey('');
+    setError('');
+    try {
+      window.sessionStorage.removeItem(KEY_STORAGE);
+    } catch {
+      // ignore
     }
   };
 
@@ -251,31 +271,62 @@ export function FeedbackAdmin() {
       <div>
         <h2 className="text-lg font-semibold">Feedback</h2>
         <p className="text-xs text-gray-500">
-          Reports sent from the Feedback button in this environment. Enter the
-          feedback admin key to view them.
+          Reports sent from the Feedback button in this environment. Sign in
+          with the feedback password to view them.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="password"
-          value={adminKey}
-          onChange={(e) => setAdminKey(e.target.value)}
-          placeholder="Feedback admin key"
-          className="max-w-xs"
-        />
-        <Button
-          onClick={() => load(adminKey, statusFilter, typeFilter)}
-          disabled={!adminKey || loading}
+      {items === null ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void load(adminKey, statusFilter, typeFilter);
+          }}
         >
-          {loading ? 'Loading...' : items ? 'Refresh' : 'Load feedback'}
-        </Button>
-        {items && items.length > 0 && (
-          <Button variant="secondary" onClick={() => downloadCsv(items)}>
-            Export CSV
+          {/* Visually hidden username so browsers can offer to remember the
+              password for you. */}
+          <input
+            type="text"
+            name="username"
+            value="feedback"
+            autoComplete="username"
+            readOnly
+            tabIndex={-1}
+            className="sr-only"
+          />
+          <Input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={adminKey}
+            onChange={(e) => setAdminKey(e.target.value)}
+            placeholder="Password"
+            className="max-w-xs"
+          />
+          <Button type="submit" disabled={!adminKey || loading}>
+            {loading ? 'Signing in...' : 'Sign in'}
           </Button>
-        )}
-      </div>
+        </form>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500">Signed in</span>
+          <Button
+            onClick={() => load(adminKey, statusFilter, typeFilter)}
+            disabled={loading}
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </Button>
+          {items.length > 0 && (
+            <Button variant="secondary" onClick={() => downloadCsv(items)}>
+              Export CSV
+            </Button>
+          )}
+          <Button variant="ghost" onClick={signOut}>
+            Sign out
+          </Button>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

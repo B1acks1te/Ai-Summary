@@ -14,6 +14,11 @@ const MIN_DESCRIPTION = 5;
 const MAX_DESCRIPTION = 2000;
 const MAX_CONTEXT_ENTRIES = 25;
 
+// After this many wrong passwords in the window, sign-in is paused for
+// everyone until the window passes (even the right password is refused).
+const ADMIN_MAX_FAILURES = 10;
+const ADMIN_FAILURE_WINDOW_MS = 10 * 60 * 1000;
+
 const TYPE_LABEL: Record<FeedbackType, string> = {
   bug: 'Bug',
   data: 'Wrong or missing data',
@@ -136,6 +141,18 @@ export class RateLimiter {
     }
     return true;
   }
+
+  // How many hits are inside the window (without adding one).
+  count(key: string, windowMs: number, now = Date.now()): number {
+    return (this.hits.get(key) ?? []).filter((t) => now - t < windowMs).length;
+  }
+
+  // Add a hit without checking any limit.
+  record(key: string, now = Date.now()): void {
+    const recent = this.hits.get(key) ?? [];
+    recent.push(now);
+    this.hits.set(key, recent);
+  }
 }
 
 function truncate(text: string, max: number): string {
@@ -206,6 +223,7 @@ export function buildDiscordPayload(doc: FeedbackDoc) {
 export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
   private readonly limiter = new RateLimiter();
+  private readonly adminFailures = new RateLimiter();
 
   constructor(private readonly repository: FeedbackRepository) {}
 
@@ -293,10 +311,20 @@ export class FeedbackService {
   private checkAdmin(key: string | undefined): string | null {
     const expected = process.env.FEEDBACK_ADMIN_KEY;
     if (!expected) return 'Feedback admin access is not configured.';
+    // Someone guessing? Pause sign-in for a few minutes (this check comes
+    // first so a lucky guess during the pause doesn't get in either).
+    if (
+      this.adminFailures.count('admin', ADMIN_FAILURE_WINDOW_MS) >=
+      ADMIN_MAX_FAILURES
+    ) {
+      return 'Too many wrong passwords - please wait a few minutes and try again.';
+    }
     if (!key) return 'Unauthorized';
     const a = createHash('sha256').update(key).digest();
     const b = createHash('sha256').update(expected).digest();
-    return timingSafeEqual(a, b) ? null : 'Unauthorized';
+    if (timingSafeEqual(a, b)) return null;
+    this.adminFailures.record('admin');
+    return 'Unauthorized';
   }
 
   async list(
