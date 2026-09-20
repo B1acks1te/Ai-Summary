@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { trackEvent } from '@/lib/analytics';
 import type { GanttBar, GanttHazardType, GanttSeverity } from '@/types/gantt';
 import { sortBarsGeographically } from './GanttCanvas';
 
@@ -141,6 +142,7 @@ export function GanttBarEditor({ bars, onChange }: Props) {
     const next = [...bars];
     const [moved] = next.splice(from, 1);
     next.splice(index, 0, moved);
+    trackEvent('gantt_bars_move', { method: 'drag' });
     onChange(next);
   };
 
@@ -150,10 +152,12 @@ export function GanttBarEditor({ bars, onChange }: Props) {
     const next = [...bars];
     const [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
+    trackEvent('gantt_bars_move', { method: 'buttons' });
     onChange(next);
   };
 
   const updateBar = (index: number, patch: Partial<GanttBar>) => {
+    trackEvent('gantt_bars_edit', { field: Object.keys(patch).join(',') });
     const next = [...bars];
     const updated = { ...next[index], ...patch };
     // Keep the label consistent whenever hazard_type or severity changes.
@@ -187,7 +191,10 @@ export function GanttBarEditor({ bars, onChange }: Props) {
             variant="ghost"
             size="sm"
             className="self-start sm:self-auto"
-            onClick={() => onChange(sortBarsGeographically(bars))}
+            onClick={() => {
+              trackEvent('gantt_bars_reset');
+              onChange(sortBarsGeographically(bars));
+            }}
           >
             Reset to automatic order
           </Button>

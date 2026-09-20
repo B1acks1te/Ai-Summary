@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/card';
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
 import {
   toastError,
   toastInfo,
@@ -71,6 +72,7 @@ export default function SevereWeatherOutlook() {
   const updateSevereWeatherOutlook = useCallback(
     lodash.throttle(async () => {
       if (!isUpdating) {
+        trackEvent('refresh_click', { panel: 'severe_weather_outlook' });
         await fetchLatestSevereWeatherOutlook();
       }
     }, 10000),

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { Filter } from 'lucide-react';
 import { toast } from 'sonner';
+import { trackEvent } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -97,6 +98,7 @@ export function GanttGenerator() {
   const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
 
   const toggleSeverity = (hazard: RegionalHazard, key: SeverityFilterKey) => {
+    trackEvent('gantt_filter_toggle', { hazard, severity: key });
     setVisibleSeverities((prev) => {
       const next = new Set(prev[hazard]);
       if (next.has(key)) {
@@ -161,6 +163,7 @@ export function GanttGenerator() {
   }, []);
   const toggleHowTo = () => {
     const next = !howToOpen;
+    trackEvent('gantt_howto_toggle', { open: next });
     setHowToOpen(next);
     try {
       window.localStorage.setItem(HOW_TO_STORAGE_KEY, String(next));
@@ -219,10 +222,12 @@ export function GanttGenerator() {
     }
     setStatus('loading');
     setStatusMsg('Parsing warnings via Claude...');
+    trackEvent('gantt_generate_pasted');
     const resp = await generateGanttFromInput({ data: { input: input.trim() } });
     if (resp.ok && resp.chart) {
       handleResult(resp.chart);
     } else {
+      trackEvent('gantt_generate_failed', { source: 'pasted' });
       setStatus('error');
       setStatusMsg(resp.error || 'Unknown error');
       toast.error(resp.error || 'Generation failed');
@@ -232,6 +237,7 @@ export function GanttGenerator() {
   const onGenerateFromLatest = async () => {
     setStatus('loading');
     setStatusMsg('Loading latest issued alerts and parsing via Claude...');
+    trackEvent('gantt_generate_latest');
     const resp = await generateGanttFromLatest();
     if (resp.ok && resp.noActiveAlerts) {
       setChart(null);
@@ -246,6 +252,7 @@ export function GanttGenerator() {
       handleResult(resp.chart, resp.sourceText);
       toast.success('Gantt generated from latest scraped alerts');
     } else {
+      trackEvent('gantt_generate_failed', { source: 'latest' });
       setStatus('error');
       setStatusMsg(resp.error || 'Unknown error');
       toast.error(resp.error || 'Generation failed');
@@ -257,6 +264,7 @@ export function GanttGenerator() {
       const parsed = JSON.parse(jsonText) as GanttChart;
       handleResult(parsed);
       toast.success('Re-rendered from edited JSON');
+      trackEvent('gantt_json_rerender');
     } catch (e) {
       setStatus('error');
       setStatusMsg(`JSON parse error: ${(e as Error).message}`);
@@ -276,6 +284,7 @@ export function GanttGenerator() {
   const onDownload = (dpi: number) => {
     if (!displayChart) return;
     downloadGanttPng(displayChart, dpi);
+    trackEvent('gantt_download', { dpi });
   };
 
   const selectSnapshot = (snap: GanttSnapshot) => {
@@ -408,6 +417,7 @@ Northwest winds may approach warning criteria.`}
               <Button
                 variant="ghost"
                 onClick={() => {
+                  trackEvent('gantt_clear');
                   setInput('');
                   setStatus('idle');
                   setStatusMsg('');
@@ -474,7 +484,10 @@ Northwest winds may approach warning criteria.`}
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setFilterOpen((v) => !v)}
+                      onClick={() => {
+                        if (!filterOpen) trackEvent('gantt_filters_open');
+                        setFilterOpen((v) => !v);
+                      }}
                       className="flex items-center gap-1.5"
                     >
                       <Filter size={14} />
@@ -518,7 +531,12 @@ Northwest winds may approach warning criteria.`}
                           <input
                             type="checkbox"
                             checked={showRoadSnowfall}
-                            onChange={() => setShowRoadSnowfall((v) => !v)}
+                            onChange={() => {
+                              trackEvent('gantt_filter_toggle', {
+                                hazard: 'road_snow',
+                              });
+                              setShowRoadSnowfall((v) => !v);
+                            }}
                             className="h-3.5 w-3.5"
                           />
                           <span />
@@ -583,7 +601,12 @@ Northwest winds may approach warning criteria.`}
                   variant={
                     selectedSnapshotId === snap.id ? 'default' : 'secondary'
                   }
-                  onClick={() => selectSnapshot(snap)}
+                  onClick={() => {
+                    trackEvent('gantt_snapshot_view', {
+                      latest: i === 0 && !noActiveAlerts,
+                    });
+                    selectSnapshot(snap);
+                  }}
                 >
                   {i === 0 && !noActiveAlerts
                     ? 'Latest'

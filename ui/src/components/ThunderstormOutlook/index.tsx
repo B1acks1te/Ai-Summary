@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/card';
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
 import {
   toastError,
   toastInfo,
@@ -71,6 +72,7 @@ export default function ThunderstormOutlook() {
   const updateThunderstormOutlook = useCallback(
     lodash.throttle(async () => {
       if (!isUpdating) {
+        trackEvent('refresh_click', { panel: 'thunderstorm_outlook' });
         await fetchLatestThunderstormOutlook();
       }
     }, 10000),

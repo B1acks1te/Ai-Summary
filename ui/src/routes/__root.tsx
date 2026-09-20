@@ -49,6 +49,16 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
 
 const isBrowser = typeof window !== 'undefined';
 
+// Umami analytics (self-hosted). Set per environment (dev and master use
+// different website IDs) via VITE_UMAMI_* build args; when no website ID is set
+// - e.g. local development - no script is added at all.
+const UMAMI_SRC = import.meta.env.VITE_UMAMI_SRC as string | undefined;
+const UMAMI_WEBSITE_ID = import.meta.env.VITE_UMAMI_WEBSITE_ID as
+  | string
+  | undefined;
+// Optional comma-separated hostnames; if set, Umami only records visits on those.
+const UMAMI_DOMAINS = import.meta.env.VITE_UMAMI_DOMAINS as string | undefined;
+
 // ────────────────────────────────────────────────────────────────
 // Ably client construction.
 //
@@ -144,6 +154,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
     <html lang="en" className="light">
       <head>
         <HeadContent />
+        {UMAMI_SRC && UMAMI_WEBSITE_ID && (
+          <script
+            defer
+            src={UMAMI_SRC}
+            data-website-id={UMAMI_WEBSITE_ID}
+            data-domains={UMAMI_DOMAINS || undefined}
+          />
+        )}
       </head>
       <body>
         <AblyProvider client={ablyClient}>

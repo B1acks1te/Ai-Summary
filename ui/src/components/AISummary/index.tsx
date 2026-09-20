@@ -1,5 +1,6 @@
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import {
   useIssuedWarningsAndWatches,
@@ -359,7 +360,10 @@ function RegenerateButtonGroup({
       <Button
         className="cursor-pointer ml-4"
         variant="outline"
-        onClick={regenerateAll}
+        onClick={() => {
+          trackEvent('summary_regenerate', { scope: 'all' });
+          regenerateAll();
+        }}
         disabled={isAIGenerating}
       >
         Regenerate
@@ -373,11 +377,21 @@ function RegenerateButtonGroup({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-65">
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={regenerateSevereWether}>
+            <DropdownMenuItem
+              onClick={() => {
+                trackEvent('summary_regenerate', { scope: 'severe_weather_outlook' });
+                regenerateSevereWether();
+              }}
+            >
               <IoRainy className="text-black" />
               Severe Weather Outlook Only
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={regenerateThunderstorm}>
+            <DropdownMenuItem
+              onClick={() => {
+                trackEvent('summary_regenerate', { scope: 'thunderstorm_outlook' });
+                regenerateThunderstorm();
+              }}
+            >
               <AiFillThunderbolt className="text-black" />
               Thunderstorm Outlook Only
             </DropdownMenuItem>

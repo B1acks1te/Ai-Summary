@@ -1,3 +1,4 @@
+import { trackEvent } from '@/lib/analytics';
 import { Store } from '@tanstack/react-store';
 
 type StoreState = {
@@ -25,6 +26,9 @@ export const store = new Store<StoreState>({
 export const setActiveOutlookTab = (
   activeOutlookTab: StoreState['activeOutlookTab'],
 ) => {
+  if (store.state.activeOutlookTab !== activeOutlookTab) {
+    trackEvent('outlook_tab_switch', { tab: activeOutlookTab });
+  }
   store.setState((state) => {
     return {
       ...state,
@@ -36,6 +40,7 @@ export const setActiveOutlookTab = (
 export const setActiveAlertReference = (
   activeAlertReference: StoreState['activeAlertReference'],
 ) => {
+  trackEvent('summary_source_click', { type: 'alert' });
   store.setState((state) => {
     return {
       ...state,
@@ -49,6 +54,7 @@ export const setActiveAlertReference = (
 export const setActiveSevereWeatherOutlookReference = (
   activeSevereWeatherOutlookReference: StoreState['activeSevereWeatherOutlookReference'],
 ) => {
+  trackEvent('summary_source_click', { type: 'severe_weather_outlook' });
   store.setState((state) => {
     return {
       ...state,
@@ -63,6 +69,7 @@ export const setActiveSevereWeatherOutlookReference = (
 export const setActiveThunderstormOutlookReference = (
   activeThunderstormOutlookReference: StoreState['activeThunderstormOutlookReference'],
 ) => {
+  trackEvent('summary_source_click', { type: 'thunderstorm_outlook' });
   store.setState((state) => {
     return {
       ...state,

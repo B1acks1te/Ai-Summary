@@ -46,6 +46,12 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_SHOW_DEV_BANNER: ${SHOW_DEV_BANNER:-false}
+        # Umami analytics. The script only loads when UMAMI_WEBSITE_ID is set for
+        # the stack (use a different website ID for dev and master). These are
+        # baked in at build time, so changing them needs a rebuild/redeploy.
+        VITE_UMAMI_SRC: ${UMAMI_SRC:-https://webwatch.bartletts.co.nz/script.js}
+        VITE_UMAMI_WEBSITE_ID: ${UMAMI_WEBSITE_ID:-}
+        VITE_UMAMI_DOMAINS: ${UMAMI_DOMAINS:-}
     depends_on:
       - main_services
       - scrape_services

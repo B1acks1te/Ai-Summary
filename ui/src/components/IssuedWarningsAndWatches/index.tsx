@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/hover-card';
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
 import {
   toastError,
   toastInfo,
@@ -81,6 +82,7 @@ export default function IssuedWarningsAndWatches() {
   const updateIssuedAlerts = useCallback(
     lodash.throttle(async () => {
       if (!isUpdating) {
+        trackEvent('refresh_click', { panel: 'issued_alerts' });
         await fetchLatestIssuedAlerts();
       }
     }, 10000),
@@ -218,7 +220,12 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
     }
   }, [activeAlertReference]);
   return (
-    <HoverCard>
+    <HoverCard
+      onOpenChange={(open) => {
+        // only count it when there is actually a timeline to show
+        if (open && _history.length > 0) trackEvent('alert_timeline_view');
+      }}
+    >
       <HoverCardTrigger asChild>
         <div
           ref={ref}
