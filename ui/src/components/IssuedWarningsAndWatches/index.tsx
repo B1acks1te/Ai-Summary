@@ -13,6 +13,7 @@ import {
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
 import { trackEvent } from '@/lib/analytics';
+import { setFeedbackContext } from '@/lib/feedbackContext';
 import {
   toastError,
   toastInfo,
@@ -48,6 +49,23 @@ export default function IssuedWarningsAndWatches() {
   } = useIssuedWarningsAndWatches();
 
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Give the Feedback form some dashboard context (counts and times only).
+  const alertsUpdatedAt = issuedWarningsAndWatches?.updatedAt;
+  const alertsCount = issuedWarningsAndWatches?.entries.length;
+  useEffect(() => {
+    setFeedbackContext({
+      alerts_last_updated: alertsUpdatedAt
+        ? formatUTCToNZDate(alertsUpdatedAt)
+        : undefined,
+      alerts_count: alertsCount,
+    });
+    return () =>
+      setFeedbackContext({
+        alerts_last_updated: undefined,
+        alerts_count: undefined,
+      });
+  }, [alertsUpdatedAt, alertsCount]);
 
   useNHISChannel((message) => {
     console.log(

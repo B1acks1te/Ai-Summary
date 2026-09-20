@@ -25,6 +25,11 @@ services:
       ABLY_API_KEY: ${ABLY_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+      # Feedback button: reports are always saved; these control notifications
+      # and the admin view. Both are optional and set per stack in Portainer.
+      APP_ENV: ${STACK_NAME:-}
+      FEEDBACK_DISCORD_WEBHOOK_URL: ${FEEDBACK_DISCORD_WEBHOOK_URL:-}
+      FEEDBACK_ADMIN_KEY: ${FEEDBACK_ADMIN_KEY:-}
     networks:
       - app-network
   scrape_services:

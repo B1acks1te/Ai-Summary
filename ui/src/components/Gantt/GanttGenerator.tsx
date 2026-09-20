@@ -4,11 +4,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
 } from 'react';
 import { Filter } from 'lucide-react';
 import { toast } from 'sonner';
 import { trackEvent } from '@/lib/analytics';
+import { setFeedbackContext } from '@/lib/feedbackContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,7 +18,7 @@ import {
   getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
 import type { GanttChart, GanttSnapshot } from '@/types/gantt';
-import type { GanttHazardType, GanttSeverity } from '@/types/gantt';
+import type { GanttSeverity } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
@@ -184,6 +184,28 @@ export function GanttGenerator() {
     });
     return { ...chart, bars };
   }, [chart, visibleSeverities, showRoadSnowfall]);
+
+  // Tell the Feedback form what is on screen, so a report about the chart
+  // arrives with useful context (labels and counts only).
+  useEffect(() => {
+    setFeedbackContext({
+      gantt_chart_title: chart?.chart_title,
+      gantt_bars: chart?.bars.length,
+      gantt_bars_shown: displayChart?.bars.length,
+      gantt_filters_hidden: hiddenFilterCount,
+      gantt_nothing_in_force: noActiveAlerts,
+      gantt_viewing_snapshot: selectedSnapshotId !== null,
+    });
+    return () =>
+      setFeedbackContext({
+        gantt_chart_title: undefined,
+        gantt_bars: undefined,
+        gantt_bars_shown: undefined,
+        gantt_filters_hidden: undefined,
+        gantt_nothing_in_force: undefined,
+        gantt_viewing_snapshot: undefined,
+      });
+  }, [chart, displayChart, hiddenFilterCount, noActiveAlerts, selectedSnapshotId]);
 
   const handleResult = (
     data: GanttChart,

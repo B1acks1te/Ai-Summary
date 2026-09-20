@@ -1,3 +1,4 @@
+import { FeedbackButton } from '@/components/Feedback/FeedbackButton';
 import { Link } from '@tanstack/react-router';
 
 const SHOW_DEV_BANNER = import.meta.env.VITE_SHOW_DEV_BANNER === 'true';
@@ -34,6 +35,7 @@ export default function Header() {
             >
               Gantt
             </Link>
+            <FeedbackButton />
           </nav>
         </div>
       </div>
