@@ -137,6 +137,10 @@ export function GanttGenerator() {
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(
     null,
   );
+  // True when MetService has no watches or warnings in force right now. The
+  // newest snapshot is then stale (snapshots are only captured while alerts
+  // exist), so the chart area shows a holding message instead of it.
+  const [noActiveAlerts, setNoActiveAlerts] = useState(false);
 
   // Filtering is applied here — to both the on-screen chart and any PNG
   // export — rather than at generation time, so toggling filters never
@@ -202,7 +206,16 @@ export function GanttGenerator() {
     setStatus('loading');
     setStatusMsg('Loading latest issued alerts and parsing via Claude...');
     const resp = await generateGanttFromLatest();
-    if (resp.ok && resp.chart) {
+    if (resp.ok && resp.noActiveAlerts) {
+      setChart(null);
+      setJsonText('');
+      setSelectedSnapshotId(null);
+      setNoActiveAlerts(true);
+      setStatus('idle');
+      setStatusMsg('No watches or warnings are currently in force.');
+      toast.info('No watches or warnings in force');
+    } else if (resp.ok && resp.chart) {
+      setNoActiveAlerts(false);
       handleResult(resp.chart, resp.sourceText);
       toast.success('Gantt generated from latest scraped alerts');
     } else {
@@ -244,7 +257,13 @@ export function GanttGenerator() {
       undefined,
       snap.id,
     );
-    setStatusMsg(`Viewing auto-captured snapshot from ${formatSnapshotTime(snap.insertedAt)}. Edits here are temporary and won't be saved back to this snapshot.`);
+    setStatusMsg(
+      `Viewing auto-captured snapshot from ${formatSnapshotTime(snap.insertedAt)}.` +
+        (noActiveAlerts
+          ? ' Nothing is in force right now, so this shows how things looked at that time.'
+          : '') +
+        " Edits here are temporary and won't be saved back to this snapshot.",
+    );
   };
 
   // Load the last 5 auto-captured snapshots on mount, and show the latest
@@ -255,7 +274,10 @@ export function GanttGenerator() {
       const resp = await getGanttSnapshots();
       if (resp.ok && resp.snapshots) {
         setSnapshots(resp.snapshots);
-        if (resp.snapshots.length > 0 && !chart) {
+        setNoActiveAlerts(!!resp.noActiveAlerts);
+        // With nothing in force the newest snapshot is out of date, so don't
+        // show it by default — the holding message is shown instead.
+        if (resp.snapshots.length > 0 && !chart && !resp.noActiveAlerts) {
           selectSnapshot(resp.snapshots[0]);
         }
       }
@@ -481,6 +503,18 @@ Northwest winds may approach warning criteria.`}
                   </div>
                 )}
               </>
+            ) : noActiveAlerts ? (
+              <div className="flex flex-col items-center justify-center gap-1 min-h-[360px] border border-dashed rounded text-center px-4">
+                <span className="text-lg font-medium text-gray-600">
+                  No watches or warnings in force
+                </span>
+                {snapshots && snapshots.length > 0 && (
+                  <span className="text-xs text-gray-400">
+                    Earlier charts are available under Auto-captured snapshots
+                    below.
+                  </span>
+                )}
+              </div>
             ) : (
               <div className="flex items-center justify-center min-h-[360px] text-gray-400 text-sm border border-dashed rounded">
                 Awaiting data
@@ -501,9 +535,9 @@ Northwest winds may approach warning criteria.`}
           </summary>
           <div className="px-4 pb-4 pt-1 border-t flex flex-col gap-2">
             <p className="text-xs text-gray-500 py-2">
-              The latest is shown by default — pick an older one to view it
-              (and try edits in the bars editor below, though those edits are
-              temporary and won't be saved back to the snapshot).
+              {noActiveAlerts
+                ? "Nothing is in force right now, so no chart is shown by default — pick a snapshot to see how things looked earlier (edits in the bars editor below are temporary and won't be saved back to the snapshot)."
+                : "The latest is shown by default — pick an older one to view it (and try edits in the bars editor below, though those edits are temporary and won't be saved back to the snapshot)."}
             </p>
             <div className="flex flex-wrap gap-2">
               {snapshots.map((snap, i) => (
@@ -515,7 +549,9 @@ Northwest winds may approach warning criteria.`}
                   }
                   onClick={() => selectSnapshot(snap)}
                 >
-                  {i === 0 ? 'Latest' : formatSnapshotTime(snap.insertedAt)}
+                  {i === 0 && !noActiveAlerts
+                    ? 'Latest'
+                    : formatSnapshotTime(snap.insertedAt)}
                 </Button>
               ))}
             </div>

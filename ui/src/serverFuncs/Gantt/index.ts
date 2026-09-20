@@ -6,6 +6,9 @@ type GanttResponse = {
   ok: boolean;
   chart?: GanttChart;
   sourceText?: string;
+  // true when the alerts feed is genuinely empty (nothing in force) — not an
+  // error, so there is no chart to draw
+  noActiveAlerts?: boolean;
   error?: string;
 };
 
@@ -42,6 +45,8 @@ export const generateGanttFromLatest = createServerFn().handler(
 type SnapshotsResponse = {
   ok: boolean;
   snapshots?: GanttSnapshot[];
+  // true when nothing is currently in force (the newest snapshot is then stale)
+  noActiveAlerts?: boolean;
   error?: string;
 };
 

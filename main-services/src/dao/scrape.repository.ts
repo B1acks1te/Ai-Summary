@@ -175,6 +175,18 @@ export class ScrapeRepository {
   }
 
   // ------------------------------------------------------------
+  // How many watches/warnings are currently in force — i.e. entries in the
+  // latest issued-alerts record that aren't flagged 'removed'. Returns null
+  // when there is no record at all yet (so "no data" can be told apart from
+  // "genuinely nothing in force").
+  // ------------------------------------------------------------
+  async countActiveIssuedAlerts(): Promise<number | null> {
+    const latest = await this.findLatestIssuedAlerts();
+    if (!latest) return null;
+    return latest.entries.filter((e) => e._status !== 'removed').length;
+  }
+
+  // ------------------------------------------------------------
   // GANTT SNAPSHOTS — auto-captured whenever issued alerts change.
   // Rolling window of the most recent MAX_GANTT_SNAPSHOTS only; older
   // ones are pruned on insert. Viewing/editing an old snapshot in the
