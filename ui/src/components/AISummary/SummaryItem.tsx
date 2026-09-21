@@ -314,10 +314,10 @@ function IssuedAlerts({
     `${alert.areaDesc.length > 0 ? alert.areaDesc : 'Multiple areas'}${alert.ChanceOfUpgrade && upgradeTo ? `. There is a ${alert.ChanceOfUpgrade.toLowerCase()} confidence of upgrading to a ${upgradeTo}` : ''}.`;
 
   // Copying the header copies the whole block: the header line, a blank line,
-  // then every area as a "* " bullet.
+  // then every area as a "- " bullet.
   const multiAreaHeader = `MetService has issued ${formatAlertNameLower(issuedWarningOrAlert.headline, isMultipleAreas)} for the following areas:`;
   const multiAreaBlock = `${multiAreaHeader}\n\n${issuedWarningsAndWatches
-    .map((alert) => `* ${areaLine(alert)}`)
+    .map((alert) => `- ${areaLine(alert)}`)
     .join('\n')}`;
 
   return (
