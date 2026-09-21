@@ -1,9 +1,17 @@
 name: Tag stable master
 
-# Auto-tags every commit that lands on master with a timestamped
-# "stable-*" tag. This gives ROLLBACK.md a reliable list of known-good
-# points to roll back to via Portainer, without anyone having to
-# remember to tag things manually.
+# Every commit that lands on master gets a "stable-*" tag named in NEW ZEALAND
+# time (e.g. stable-2026-09-21-1833 = 6:33 pm NZ). Tags are the rollback
+# points described in ROLLBACK.md.
+#
+# Each tag also gets:
+#   - a GitHub Release with the PR title, the NZ time, the previous stable
+#     tag, and the exact text to paste into Portainer to roll back to it
+#   - (optional) a Discord message, if the DEPLOY_DISCORD_WEBHOOK_URL secret
+#     is set on the repo
+#
+# The tag itself is the important part; the Release and Discord steps are
+# best-effort and can never stop a tag being created.
 
 on:
   push:
@@ -16,17 +24,97 @@ permissions:
 jobs:
   tag:
     runs-on: ubuntu-latest
+    env:
+      TZ: Pacific/Auckland
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create stable tag
+      - name: Create stable tag (NZ time)
+        id: tag
         run: |
-          TAG="stable-$(date -u +'%Y-%m-%d-%H%M')"
+          set -euo pipefail
+
+          # the previous stable tag, worked out before we add the new one
+          PREV="$(git tag -l 'stable-*' --sort=-creatordate | head -n 1 || true)"
+
+          BASE="stable-$(date +'%Y-%m-%d-%H%M')"
+          TAG="$BASE"
+          # two merges inside the same minute would collide - add seconds
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            TAG="$BASE-$(date +'%S')"
+          fi
+
+          NZ_TIME="$(date +'%A %-d %B %Y, %-I:%M %p')"
+          SUBJECT="$(git log -1 --format=%s)"
+          # a GitHub merge commit's body starts with the pull request title
+          PR_TITLE="$(git log -1 --format=%b | sed -n '1p')"
+          PR_NUMBER="$(printf '%s' "$SUBJECT" | grep -oE '#[0-9]+' | head -n 1 || true)"
+
+          {
+            echo "Stable build from master"
+            echo "NZ time: $NZ_TIME"
+            echo "Commit: $GITHUB_SHA"
+            if [ -n "$PR_NUMBER" ]; then echo "Pull request: $PR_NUMBER ${PR_TITLE:+- $PR_TITLE}"; fi
+            echo "Previous stable: ${PREV:-none}"
+          } > /tmp/tag-message.txt
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Auto-tagged stable build from master ($GITHUB_SHA)"
+          git tag -a "$TAG" -F /tmp/tag-message.txt
           git push origin "$TAG"
-          echo "Tagged $TAG"
+
+          {
+            echo "tag=$TAG"
+            echo "prev=$PREV"
+            echo "nz_time=$NZ_TIME"
+            echo "pr_number=$PR_NUMBER"
+            echo "pr_title=$PR_TITLE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Tagged $TAG ($NZ_TIME NZ time)"
+
+      - name: Create GitHub Release (rollback menu)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV: ${{ steps.tag.outputs.prev }}
+          NZ_TIME: ${{ steps.tag.outputs.nz_time }}
+          PR_NUMBER: ${{ steps.tag.outputs.pr_number }}
+          PR_TITLE: ${{ steps.tag.outputs.pr_title }}
+        run: |
+          {
+            echo "**Released:** $NZ_TIME (NZ time)"
+            if [ -n "$PR_NUMBER" ]; then echo; echo "**Pull request:** $PR_NUMBER ${PR_TITLE:+- $PR_TITLE}"; fi
+            echo
+            echo "**Previous stable release:** ${PREV:-none}"
+            echo
+            echo "### To roll master back to THIS release"
+            echo "Portainer > Stacks > **mast-master** > Repository reference, set it to:"
+            echo
+            echo '```'
+            echo "refs/tags/$TAG"
+            echo '```'
+            echo
+            echo "then **Pull and redeploy**. Full steps: see ROLLBACK.md."
+          } > /tmp/release-notes.md
+          gh release create "$TAG" --title "$TAG  ($NZ_TIME NZ)" --notes-file /tmp/release-notes.md --verify-tag
+
+      - name: Tell Discord (optional)
+        continue-on-error: true
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DEPLOY_DISCORD_WEBHOOK_URL }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV: ${{ steps.tag.outputs.prev }}
+          NZ_TIME: ${{ steps.tag.outputs.nz_time }}
+          PR_TITLE: ${{ steps.tag.outputs.pr_title }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "No DEPLOY_DISCORD_WEBHOOK_URL secret set - skipping"
+            exit 0
+          fi
+          MSG="New stable release **$TAG** ($NZ_TIME NZ time)${PR_TITLE:+ - $PR_TITLE}. If something looks wrong, roll back to **${PREV:-none}** (see ROLLBACK.md)."
+          jq -n --arg content "$MSG" '{username: "Releases", content: $content, allowed_mentions: {parse: []}}' \
+            | curl -fsS -H "Content-Type: application/json" -d @- "$DISCORD_WEBHOOK_URL"

@@ -11,6 +11,14 @@ services:
     ports:
       - '${MAIN_SERVICES_PORT:-3000}:3000'
     restart: unless-stopped
+    # Shows healthy/unhealthy in Portainer; 503 means the service is up but
+    # MongoDB isn't answering.
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3000/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     environment:
       TZ: Pacific/Auckland
       LANG: en_NZ.UTF-8
@@ -64,6 +72,13 @@ services:
     ports:
       - '${UI_PORT:-3001}:3001'
     restart: unless-stopped
+    # /api/health also checks the UI can reach main-services and the database.
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3001/api/health || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     environment:
       TZ: Pacific/Auckland
       MONGODB_URI: ${MONGODB_URI}
