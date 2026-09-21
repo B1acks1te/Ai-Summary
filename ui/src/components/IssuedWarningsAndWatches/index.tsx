@@ -6,11 +6,18 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
-import { useNHISChannel } from '@/hooks';
+import { useMediaQuery, useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
 import { trackEvent } from '@/lib/analytics';
 import { setFeedbackContext } from '@/lib/feedbackContext';
@@ -213,6 +220,23 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
   // A reissue is technically an "updated" alert (new ID replacing the old
   // one) but nothing meaningful changed, so show Reissue instead of Updated.
   const reissue = isReissue(_history);
+  const hasHistory = _history.length > 0;
+
+  // The Timeline pops out beside the card on hover, but only where that works:
+  // a desktop-sized window with a mouse. On phones, tablets and narrow windows
+  // there is no hover and no room beside the card, so it opens as a dialog you
+  // tap open instead.
+  const canHover = useMediaQuery(
+    '(hover: hover) and (pointer: fine) and (min-width: 1024px)',
+  );
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const countBadge = (
+    <Badge title="Number of history" className={'text-xs right-0 font-semibold'}>
+      {_history.length}
+    </Badge>
+  );
 
   const scrollIntoViewRef = useRef<HTMLDivElement | null>(null);
 
@@ -238,87 +262,125 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
     }
   }, [activeAlertReference]);
   return (
-    <HoverCard
-      onOpenChange={(open) => {
-        // only count it when there is actually a timeline to show
-        if (open && _history.length > 0) trackEvent('alert_timeline_view');
-      }}
-    >
-      <HoverCardTrigger asChild>
-        <div
-          ref={ref}
-          className={cn(
-            'mb-4 w-full border p-4 rounded-md shadow transition-all',
-            activeAlertReference?.alertIds.includes(id) &&
-              'border-blue-500 bg-blue-50',
-            _status === 'removed'
-              ? 'opacity-50 bg-gray-100'
-              : 'hover:border-blue-500',
-          )}
-        >
-          <div className="text-xs text-gray-500 mb-1 relative flex items-center justify-between">
-            <span onClick={() => console.log(id)}>
-              {formatUTCToNZDate(new Date(sent))}
-            </span>
-            <div className="flex gap-1 justify-center items-center">
-              {_status && !(reissue && _status === 'updated') && (
-                <Badge
-                  variant={'outline'}
-                  className={cn(
-                    'text-xs right-0 font-semibold capitalize',
-                    _status === 'updated' && 'border-blue-500 text-blue-500',
-                    _status === 'removed' && 'border-gray-500 text-gray-500',
-                    _status === 'new' && 'border-green-600 text-green-600',
-                  )}
+    <>
+      <HoverCard
+        open={canHover && hoverOpen}
+        onOpenChange={(open) => {
+          setHoverOpen(open);
+          // only count it when there is actually a timeline to show
+          if (open && hasHistory) trackEvent('alert_timeline_view');
+        }}
+      >
+        <HoverCardTrigger asChild>
+          <div
+            ref={ref}
+            className={cn(
+              'mb-4 w-full border p-4 rounded-md shadow transition-all',
+              activeAlertReference?.alertIds.includes(id) &&
+                'border-blue-500 bg-blue-50',
+              _status === 'removed'
+                ? 'opacity-50 bg-gray-100'
+                : 'hover:border-blue-500',
+            )}
+          >
+            <div className="text-xs text-gray-500 mb-1 relative flex items-center justify-between">
+              <span onClick={() => console.log(id)}>
+                {formatUTCToNZDate(new Date(sent))}
+              </span>
+              <div className="flex gap-1 justify-center items-center">
+                {_status && !(reissue && _status === 'updated') && (
+                  <Badge
+                    variant={'outline'}
+                    className={cn(
+                      'text-xs right-0 font-semibold capitalize',
+                      _status === 'updated' && 'border-blue-500 text-blue-500',
+                      _status === 'removed' && 'border-gray-500 text-gray-500',
+                      _status === 'new' && 'border-green-600 text-green-600',
+                    )}
+                  >
+                    {_status}
+                  </Badge>
+                )}
+                {hasHistory &&
+                  (canHover ? (
+                    countBadge
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setHistoryOpen(true)}
+                      aria-label={`Show history (${_history.length} versions)`}
+                      className="cursor-pointer"
+                    >
+                      {countBadge}
+                    </button>
+                  ))}
+                {reissue && (
+                  <Badge
+                    variant={'outline'}
+                    title="No change to area, period, chance of upgrade or severity"
+                    className="text-xs font-semibold border-amber-500 text-amber-600"
+                  >
+                    Reissue
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <AlertIndicator data={issuedAlert} />
+            <div>
+              <span className="font-bold">Area: </span>
+              <span>{areaDesc.replace(/,/g, ', ')}</span>
+            </div>
+            <div>
+              <span className="font-bold">Period: </span>
+              <span>{getPeriodDescription(onset, expires)}</span>
+            </div>
+            <div>
+              <span className="font-bold">Chance Of Upgrade: </span>
+              <span>{ChanceOfUpgrade || 'N/A'}</span>
+            </div>
+
+            {!canHover && hasHistory && (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="text-sm text-blue-600 hover:underline mt-2"
                 >
-                  {_status}
-                </Badge>
-              )}
-              {_history.length > 0 && (
-                <Badge
-                  // variant={'outline'}
-                  title="Number of history"
-                  className={'text-xs right-0 font-semibold'}
-                >
-                  {_history.length}
-                </Badge>
-              )}
-              {reissue && (
-                <Badge
-                  variant={'outline'}
-                  title="No change to area, period, chance of upgrade or severity"
-                  className="text-xs font-semibold border-amber-500 text-amber-600"
-                >
-                  Reissue
-                </Badge>
-              )}
+                  View history ({_history.length})
+                </button>
+              </div>
+            )}
+            <div>
+              <DetailsToggle issuedAlert={issuedAlert} />
             </div>
           </div>
-          <AlertIndicator data={issuedAlert} />
-          <div>
-            <span className="font-bold">Area: </span>
-            <span>{areaDesc.replace(/,/g, ', ')}</span>
-          </div>
-          <div>
-            <span className="font-bold">Period: </span>
-            <span>{getPeriodDescription(onset, expires)}</span>
-          </div>
-          <div>
-            <span className="font-bold">Chance Of Upgrade: </span>
-            <span>{ChanceOfUpgrade || 'N/A'}</span>
-          </div>
-
-          <div>
-            <DetailsToggle issuedAlert={issuedAlert} />
-          </div>
-        </div>
-      </HoverCardTrigger>
-      {_history.length > 0 && (
-        <HoverCardContent className="w-90 bg-gray-50 ml-2" side="right">
-          <AlertHistory history={_history} />
-        </HoverCardContent>
+        </HoverCardTrigger>
+        {hasHistory && (
+          <HoverCardContent className="w-90 bg-gray-50 ml-2" side="right">
+            <AlertHistory history={_history} />
+          </HoverCardContent>
+        )}
+      </HoverCard>
+      {!canHover && hasHistory && (
+        <Dialog
+          open={historyOpen}
+          onOpenChange={(open) => {
+            setHistoryOpen(open);
+            if (open) trackEvent('alert_timeline_view');
+          }}
+        >
+          <DialogContent className="max-h-[90dvh] overflow-y-auto p-3 sm:max-w-lg sm:p-6">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Alert history</DialogTitle>
+              <DialogDescription>
+                Every version of this alert, newest first.
+              </DialogDescription>
+            </DialogHeader>
+            <AlertHistory history={_history} maxHeightClass="max-h-none" />
+          </DialogContent>
+        </Dialog>
       )}
-    </HoverCard>
+    </>
   );
 }
 

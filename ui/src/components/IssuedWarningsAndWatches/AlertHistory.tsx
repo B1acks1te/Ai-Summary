@@ -43,7 +43,15 @@ function DiffText({
   );
 }
 
-export function AlertHistory({ history }: { history: IssuedAlert[] }) {
+export function AlertHistory({
+  history,
+  maxHeightClass = 'max-h-160',
+}: {
+  history: IssuedAlert[];
+  // caps how tall the list gets before it scrolls (the dialog passes
+  // max-h-none and lets the dialog itself scroll)
+  maxHeightClass?: string;
+}) {
   return (
     <div>
       <div className="flex flex-col items-center justify-center mb-4">
@@ -57,7 +65,9 @@ export function AlertHistory({ history }: { history: IssuedAlert[] }) {
           </p>
         )}
       </div>
-      <div className="w-full px-4 max-h-160 overflow-y-auto text-[0.9rem]">
+      <div
+        className={`w-full px-4 overflow-y-auto text-[0.9rem] ${maxHeightClass}`}
+      >
         {history.map((i, index) => {
           // history is newest-first; the "previous" version chronologically
           // is the next entry in the array (older). The oldest entry has

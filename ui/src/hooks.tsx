@@ -1,6 +1,6 @@
 import type { AblyMessageCallback } from 'ably/react';
 import { useChannel, useChannelStateListener } from 'ably/react';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { ABLY_CHANNEL_NAME } from './ablyChannel';
 
 /**
@@ -30,6 +30,24 @@ export function useCopyToClipboard(
   }
 
   return [copy, isCopied];
+}
+
+/**
+ * useMediaQuery hook
+ * Returns whether a CSS media query currently matches (e.g. whether the device
+ * can hover). Always false on the server and for the very first render, then
+ * follows the browser and updates if the window is resized.
+ */
+export function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mediaQuery = window.matchMedia(query);
+      mediaQuery.addEventListener('change', onChange);
+      return () => mediaQuery.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
 }
 
 export function useNHISChannel(callbackOnMessage?: AblyMessageCallback) {
