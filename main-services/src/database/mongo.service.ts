@@ -26,6 +26,14 @@ export class MongoService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('MongoDB connection closed');
   }
 
+  // A cheap round trip to the database, used by the /health check.
+  async ping(): Promise<void> {
+    if (!this.db) {
+      throw new Error('MongoDB connection is not initialized');
+    }
+    await this.db.command({ ping: 1 });
+  }
+
   getCollection<T extends Document>(name: string): Collection<T> {
     if (!this.db) {
       throw new Error('MongoDB connection is not initialized');

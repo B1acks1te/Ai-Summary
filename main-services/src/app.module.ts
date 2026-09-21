@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './controllers/app.controller';
 import { FeedbackController } from './controllers/feedback.controller';
+import { HealthController } from './controllers/health.controller';
 import { FeedbackRepository } from './dao/feedback.repository';
 import { ScrapeRepository } from './dao/scrape.repository';
 import { MongoService } from './database/mongo.service';
@@ -20,7 +21,7 @@ import { ScrapeService } from './services/scrape/scrape.service';
     }),
     ScheduleModule.forRoot(),
   ],
-  controllers: [AppController, FeedbackController],
+  controllers: [AppController, FeedbackController, HealthController],
   providers: [
     AppService,
     MongoService,
