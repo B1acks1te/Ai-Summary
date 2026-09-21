@@ -229,6 +229,20 @@ export function SummaryItem({
   );
 }
 
+// The short thunderstorm line joins the areas from every time period at that
+// risk level, so an area MetService lists for both the morning and the
+// afternoon would appear twice. Drop exact repeats (ignoring capital letters),
+// keeping the order each area first appears in.
+function uniqueAreas(areas: string[]): string[] {
+  const seen = new Set<string>();
+  return areas.filter((area) => {
+    const key = area.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function ThunderstormOutLookBrief({
   summary,
   date,
@@ -237,7 +251,7 @@ function ThunderstormOutLookBrief({
   date: DateTime<boolean>;
 }) {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const areas = summary.flatMap((o) => o.areas);
+  const areas = uniqueAreas(summary.flatMap((o) => o.areas));
 
   if (summary.length === 0) {
     return null;
@@ -295,6 +309,17 @@ function IssuedAlerts({
 
   const chance = issuedWarningOrAlert.ChanceOfUpgrade;
 
+  // The text for one area bullet, exactly as it reads on screen.
+  const areaLine = (alert: { areaDesc: string; ChanceOfUpgrade?: string }) =>
+    `${alert.areaDesc.length > 0 ? alert.areaDesc : 'Multiple areas'}${alert.ChanceOfUpgrade && upgradeTo ? `. There is a ${alert.ChanceOfUpgrade.toLowerCase()} confidence of upgrading to a ${upgradeTo}` : ''}.`;
+
+  // Copying the header copies the whole block: the header line, a blank line,
+  // then every area as a "* " bullet.
+  const multiAreaHeader = `MetService has issued ${formatAlertNameLower(issuedWarningOrAlert.headline, isMultipleAreas)} for the following areas:`;
+  const multiAreaBlock = `${multiAreaHeader}\n\n${issuedWarningsAndWatches
+    .map((alert) => `* ${areaLine(alert)}`)
+    .join('\n')}`;
+
   return (
     <div className="flex items-stretch gap-2">
       <div className="flex min-h-full">
@@ -308,15 +333,13 @@ function IssuedAlerts({
               {formatAlertNameLower(issuedWarningOrAlert.headline, isMultipleAreas)}{' '}
               for the following areas:
               <div>
-                <CopyIcon
-                  content={`MetService has issued ${formatAlertNameLower(issuedWarningOrAlert.headline, isMultipleAreas)} for the following areas:`}
-                />
+                <CopyIcon content={multiAreaBlock} />
               </div>
             </div>
             <ul className="list-disc pl-6 space-y-1">
               {issuedWarningsAndWatches.map(
                 ({ id, areaDesc, ChanceOfUpgrade }, idx) => {
-                  const content = `${areaDesc.length > 0 ? areaDesc : 'Multiple areas'}. ${ChanceOfUpgrade && upgradeTo ? `There is a ${ChanceOfUpgrade.toLowerCase()} confidence of upgrading to a ${upgradeTo}` : ''}.`;
+                  const content = areaLine({ areaDesc, ChanceOfUpgrade });
                   return (
                     <li key={idx}>
                       {areaDesc.length > 0 ? areaDesc : 'Multiple areas'}
