@@ -152,7 +152,11 @@ export default function IssuedWarningsAndWatches() {
         {isLoading ? (
           <LoadingSkeleton />
         ) : (
-          <div className="flex flex-col gap-2 w-75 text-[0.9rem]">
+          // Below lg the panel is full width, so the cards fill it (a grid of
+          // 1-3 columns as the window gets wider) instead of sitting as a
+          // fixed 300px column floating in the middle. At lg and up this is
+          // the original single 300px column, unchanged.
+          <div className="grid w-full grid-cols-1 items-start gap-2 text-[0.9rem] min-[560px]:grid-cols-2 min-[860px]:grid-cols-3 lg:flex lg:w-75 lg:flex-col lg:items-stretch">
             {issuedWarningsAndWatches &&
             issuedWarningsAndWatches.entries.length > 0 ? (
               sortAlerts(issuedWarningsAndWatches.entries).map((i) => {
