@@ -1,13 +1,24 @@
-import { useMemo, useState } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Filter } from 'lucide-react';
 import { toast } from 'sonner';
+import { trackEvent } from '@/lib/analytics';
+import { setFeedbackContext } from '@/lib/feedbackContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   generateGanttFromInput,
   generateGanttFromLatest,
+  getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
-import type { GanttChart } from '@/types/gantt';
+import type { GanttChart, GanttSnapshot } from '@/types/gantt';
+import type { GanttSeverity } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
@@ -17,31 +28,195 @@ import { GanttBarEditor } from './GanttBarEditor';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
+// The three "regional" hazard types share the same watch/orange/red severity
+// scale, so they get one filter row each. Road snowfall is filtered as a
+// single on/off toggle instead — it only ever appears with severity
+// "warning" (no colour) in practice.
+type RegionalHazard = 'rain' | 'wind' | 'snow';
+type SeverityFilterKey = 'watch' | 'orange_warning' | 'red_warning';
+
+const REGIONAL_HAZARDS: RegionalHazard[] = ['rain', 'wind', 'snow'];
+const SEVERITY_FILTER_KEYS: SeverityFilterKey[] = [
+  'watch',
+  'orange_warning',
+  'red_warning',
+];
+
+const HAZARD_FILTER_LABEL: Record<RegionalHazard, string> = {
+  rain: 'Rain',
+  wind: 'Wind',
+  snow: 'Snow',
+};
+
+const SEVERITY_FILTER_LABEL: Record<SeverityFilterKey, string> = {
+  watch: 'Watch',
+  orange_warning: 'Orange Warning',
+  red_warning: 'Red Warning',
+};
+
+// localStorage key for whether the "How to use this page" panel is open, so a
+// choice to minimise it is remembered across refreshes (per browser).
+const HOW_TO_STORAGE_KEY = 'gantt-how-to-open';
+
+// A bar's severity is "warning" (uncoloured) when the source didn't state a
+// colour — visually and for filtering purposes this is grouped with orange,
+// same as the render logic in GanttCanvas already treats it.
+function severityFilterKey(severity: GanttSeverity): SeverityFilterKey {
+  if (severity === 'watch') return 'watch';
+  if (severity === 'red_warning') return 'red_warning';
+  return 'orange_warning';
+}
+
+function defaultVisibleSeverities(): Record<RegionalHazard, Set<SeverityFilterKey>> {
+  return {
+    rain: new Set(SEVERITY_FILTER_KEYS),
+    wind: new Set(SEVERITY_FILTER_KEYS),
+    snow: new Set(SEVERITY_FILTER_KEYS),
+  };
+}
+
+function formatSnapshotTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function GanttGenerator() {
   const [input, setInput] = useState('');
   const [chart, setChart] = useState<GanttChart | null>(null);
   const [jsonText, setJsonText] = useState('');
   const [status, setStatus] = useState<Status>('idle');
   const [statusMsg, setStatusMsg] = useState('');
-  const [excludeRoadSnow, setExcludeRoadSnow] = useState(false);
+  const [visibleSeverities, setVisibleSeverities] = useState<
+    Record<RegionalHazard, Set<SeverityFilterKey>>
+  >(defaultVisibleSeverities());
+  const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
 
-  // Road-specific snow alerts (road_snow) are included by default. Filtering
-  // is applied here — to both the on-screen chart and any PNG export — rather
-  // than at generation time, so toggling it doesn't require a re-generation.
+  const toggleSeverity = (hazard: RegionalHazard, key: SeverityFilterKey) => {
+    trackEvent('gantt_filter_toggle', { hazard, severity: key });
+    setVisibleSeverities((prev) => {
+      const next = new Set(prev[hazard]);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return { ...prev, [hazard]: next };
+    });
+  };
+
+  // Filter popover — closes on outside click, same interaction pattern as
+  // any standard dropdown/menu. Badge count = how many hazard/severity
+  // combinations are currently hidden (0 when everything's visible, so the
+  // badge only appears once a filter is actually active).
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [filterOpen]);
+
+  const hiddenFilterCount = useMemo(() => {
+    const totalPossible = REGIONAL_HAZARDS.length * SEVERITY_FILTER_KEYS.length + 1;
+    const totalVisible =
+      REGIONAL_HAZARDS.reduce((sum, h) => sum + visibleSeverities[h].size, 0) +
+      (showRoadSnowfall ? 1 : 0);
+    return totalPossible - totalVisible;
+  }, [visibleSeverities, showRoadSnowfall]);
+
+  // Auto-captured snapshots (last 5, newest first) — see captureGanttSnapshot
+  // on the backend. Viewing/editing one here is local-only: nothing written
+  // back is ever persisted to the snapshot itself.
+  const [snapshots, setSnapshots] = useState<GanttSnapshot[] | null>(null);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(
+    null,
+  );
+  // True when MetService has no watches or warnings in force right now. The
+  // newest snapshot is then stale (snapshots are only captured while alerts
+  // exist), so the chart area shows a holding message instead of it.
+  const [noActiveAlerts, setNoActiveAlerts] = useState(false);
+
+  // "How to use this page": open by default (including on the server render),
+  // but once someone minimises it that choice is remembered and applied on the
+  // next visit. Read after mount because localStorage doesn't exist during SSR.
+  const [howToOpen, setHowToOpen] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(HOW_TO_STORAGE_KEY) === 'false') {
+        setHowToOpen(false);
+      }
+    } catch {
+      // storage blocked (e.g. private mode) — just stay open
+    }
+  }, []);
+  const toggleHowTo = () => {
+    const next = !howToOpen;
+    trackEvent('gantt_howto_toggle', { open: next });
+    setHowToOpen(next);
+    try {
+      window.localStorage.setItem(HOW_TO_STORAGE_KEY, String(next));
+    } catch {
+      // storage blocked — the toggle still works, it just isn't remembered
+    }
+  };
+
+  // Filtering is applied here — to both the on-screen chart and any PNG
+  // export — rather than at generation time, so toggling filters never
+  // requires a re-generation. Everything is visible by default.
   const displayChart = useMemo(() => {
     if (!chart) return chart;
-    if (!excludeRoadSnow) return chart;
-    return {
-      ...chart,
-      bars: chart.bars.filter((b) => b.hazard_type !== 'road_snow'),
-    };
-  }, [chart, excludeRoadSnow]);
+    const bars = chart.bars.filter((bar) => {
+      if (bar.hazard_type === 'road_snow') return showRoadSnowfall;
+      const key = severityFilterKey(bar.severity);
+      return visibleSeverities[bar.hazard_type as RegionalHazard].has(key);
+    });
+    return { ...chart, bars };
+  }, [chart, visibleSeverities, showRoadSnowfall]);
 
-  const handleResult = (data: GanttChart, sourceText?: string) => {
+  // Tell the Feedback form what is on screen, so a report about the chart
+  // arrives with useful context (labels and counts only).
+  useEffect(() => {
+    setFeedbackContext({
+      gantt_chart_title: chart?.chart_title,
+      gantt_bars: chart?.bars.length,
+      gantt_bars_shown: displayChart?.bars.length,
+      gantt_filters_hidden: hiddenFilterCount,
+      gantt_nothing_in_force: noActiveAlerts,
+      gantt_viewing_snapshot: selectedSnapshotId !== null,
+    });
+    return () =>
+      setFeedbackContext({
+        gantt_chart_title: undefined,
+        gantt_bars: undefined,
+        gantt_bars_shown: undefined,
+        gantt_filters_hidden: undefined,
+        gantt_nothing_in_force: undefined,
+        gantt_viewing_snapshot: undefined,
+      });
+  }, [chart, displayChart, hiddenFilterCount, noActiveAlerts, selectedSnapshotId]);
+
+  const handleResult = (
+    data: GanttChart,
+    sourceText?: string,
+    fromSnapshotId?: string,
+  ) => {
     const sorted: GanttChart = {
       ...data,
       bars: sortBarsGeographically(data.bars),
     };
+    setSelectedSnapshotId(fromSnapshotId ?? null);
     setChart(sorted);
     setJsonText(JSON.stringify(sorted, null, 2));
     setStatus('success');
@@ -69,10 +244,12 @@ export function GanttGenerator() {
     }
     setStatus('loading');
     setStatusMsg('Parsing warnings via Claude...');
+    trackEvent('gantt_generate_pasted');
     const resp = await generateGanttFromInput({ data: { input: input.trim() } });
     if (resp.ok && resp.chart) {
       handleResult(resp.chart);
     } else {
+      trackEvent('gantt_generate_failed', { source: 'pasted' });
       setStatus('error');
       setStatusMsg(resp.error || 'Unknown error');
       toast.error(resp.error || 'Generation failed');
@@ -82,11 +259,22 @@ export function GanttGenerator() {
   const onGenerateFromLatest = async () => {
     setStatus('loading');
     setStatusMsg('Loading latest issued alerts and parsing via Claude...');
+    trackEvent('gantt_generate_latest');
     const resp = await generateGanttFromLatest();
-    if (resp.ok && resp.chart) {
+    if (resp.ok && resp.noActiveAlerts) {
+      setChart(null);
+      setJsonText('');
+      setSelectedSnapshotId(null);
+      setNoActiveAlerts(true);
+      setStatus('idle');
+      setStatusMsg('No watches or warnings are currently in force.');
+      toast.info('No watches or warnings in force');
+    } else if (resp.ok && resp.chart) {
+      setNoActiveAlerts(false);
       handleResult(resp.chart, resp.sourceText);
       toast.success('Gantt generated from latest scraped alerts');
     } else {
+      trackEvent('gantt_generate_failed', { source: 'latest' });
       setStatus('error');
       setStatusMsg(resp.error || 'Unknown error');
       toast.error(resp.error || 'Generation failed');
@@ -98,6 +286,7 @@ export function GanttGenerator() {
       const parsed = JSON.parse(jsonText) as GanttChart;
       handleResult(parsed);
       toast.success('Re-rendered from edited JSON');
+      trackEvent('gantt_json_rerender');
     } catch (e) {
       setStatus('error');
       setStatusMsg(`JSON parse error: ${(e as Error).message}`);
@@ -117,15 +306,59 @@ export function GanttGenerator() {
   const onDownload = (dpi: number) => {
     if (!displayChart) return;
     downloadGanttPng(displayChart, dpi);
+    trackEvent('gantt_download', { dpi });
   };
+
+  const selectSnapshot = (snap: GanttSnapshot) => {
+    handleResult(
+      { chart_title: snap.chart_title, bars: snap.bars, notes: snap.notes },
+      undefined,
+      snap.id,
+    );
+    setStatusMsg(
+      `Viewing auto-captured snapshot from ${formatSnapshotTime(snap.insertedAt)}.` +
+        (noActiveAlerts
+          ? ' Nothing is in force right now, so this shows how things looked at that time.'
+          : '') +
+        " Edits here are temporary and won't be saved back to this snapshot.",
+    );
+  };
+
+  // Load the last 5 auto-captured snapshots on mount, and show the latest
+  // one immediately if nothing has been generated yet — so the page always
+  // has something useful on it rather than an empty "Awaiting data" state.
+  useEffect(() => {
+    (async () => {
+      const resp = await getGanttSnapshots();
+      if (resp.ok && resp.snapshots) {
+        setSnapshots(resp.snapshots);
+        setNoActiveAlerts(!!resp.noActiveAlerts);
+        // With nothing in force the newest snapshot is out of date, so don't
+        // show it by default — the holding message is shown instead.
+        if (resp.snapshots.length > 0 && !chart && !resp.noActiveAlerts) {
+          selectSnapshot(resp.snapshots[0]);
+        }
+      }
+    })();
+    // Only ever run once on mount — this is a one-time initial load, not a
+    // live subscription (the manual generate/edit flows manage state after).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex flex-col gap-4 p-6">
       <details
-        open
+        open={howToOpen}
         className="border rounded-lg bg-blue-50/50 border-blue-100 text-sm"
       >
-        <summary className="cursor-pointer select-none font-medium px-4 py-2.5 text-blue-900">
+        <summary
+          onClick={(e) => {
+            // controlled: we own the open state so it can be remembered
+            e.preventDefault();
+            toggleHowTo();
+          }}
+          className="cursor-pointer select-none font-medium px-4 py-2.5 text-blue-900"
+        >
           How to use this page
         </summary>
         <div className="px-4 pb-4 pt-1 text-gray-700">
@@ -148,10 +381,11 @@ export function GanttGenerator() {
               changes apply immediately to the chart and export.
             </li>
             <li>
-              Tick <span className="font-medium">Exclude road snowfall</span>{' '}
-              if you only want regional watches/warnings on the chart (route-specific
-              alerts like Milford Road are shown in purple; regional snow alerts
-              are shown in blue).
+              Click <span className="font-medium">Filters</span> next to the
+              download buttons to show or hide specific hazard/severity
+              combinations (e.g. only red warnings, or hide road-specific
+              alerts like Milford Road — shown in purple, separate from
+              regional snow shown in blue).
             </li>
             <li>
               Download the chart as a PNG at{' '}
@@ -205,6 +439,7 @@ Northwest winds may approach warning criteria.`}
               <Button
                 variant="ghost"
                 onClick={() => {
+                  trackEvent('gantt_clear');
                   setInput('');
                   setStatus('idle');
                   setStatusMsg('');
@@ -266,15 +501,72 @@ Northwest winds may approach warning criteria.`}
                   <Button variant="secondary" onClick={() => onDownload(150)}>
                     Download 150 DPI
                   </Button>
-                  <label className="flex items-center gap-1.5 text-sm text-gray-600 ml-1 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={excludeRoadSnow}
-                      onChange={(e) => setExcludeRoadSnow(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Exclude road snowfall
-                  </label>
+
+                  <div className="relative" ref={filterRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (!filterOpen) trackEvent('gantt_filters_open');
+                        setFilterOpen((v) => !v);
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <Filter size={14} />
+                      Filters
+                      {hiddenFilterCount > 0 && (
+                        <span className="bg-blue-100 text-blue-700 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                          {hiddenFilterCount}
+                        </span>
+                      )}
+                    </Button>
+
+                    {filterOpen && (
+                      <div className="absolute bottom-full left-0 z-20 mb-1 w-[22rem] max-w-[90vw] border rounded-lg bg-white shadow-lg p-3 text-xs">
+                        <p className="font-medium mb-2">
+                          Filter by hazard and severity
+                        </p>
+                        <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-2.5 gap-y-1.5 items-center">
+                          <span />
+                          {SEVERITY_FILTER_KEYS.map((key) => (
+                            <span key={key} className="text-gray-400">
+                              {SEVERITY_FILTER_LABEL[key]}
+                            </span>
+                          ))}
+
+                          {REGIONAL_HAZARDS.map((hazard) => (
+                            <Fragment key={hazard}>
+                              <span>{HAZARD_FILTER_LABEL[hazard]}</span>
+                              {SEVERITY_FILTER_KEYS.map((key) => (
+                                <input
+                                  key={`${hazard}-${key}`}
+                                  type="checkbox"
+                                  checked={visibleSeverities[hazard].has(key)}
+                                  onChange={() => toggleSeverity(hazard, key)}
+                                  className="h-3.5 w-3.5"
+                                />
+                              ))}
+                            </Fragment>
+                          ))}
+
+                          <span>Road snowfall</span>
+                          <input
+                            type="checkbox"
+                            checked={showRoadSnowfall}
+                            onChange={() => {
+                              trackEvent('gantt_filter_toggle', {
+                                hazard: 'road_snow',
+                              });
+                              setShowRoadSnowfall((v) => !v);
+                            }}
+                            className="h-3.5 w-3.5"
+                          />
+                          <span />
+                          <span />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {chart.notes?.length > 0 && (
                   <div className="text-xs text-gray-500">
@@ -287,6 +579,18 @@ Northwest winds may approach warning criteria.`}
                   </div>
                 )}
               </>
+            ) : noActiveAlerts ? (
+              <div className="flex flex-col items-center justify-center gap-1 min-h-[360px] border border-dashed rounded text-center px-4">
+                <span className="text-lg font-medium text-gray-600">
+                  No watches or warnings in force
+                </span>
+                {snapshots && snapshots.length > 0 && (
+                  <span className="text-xs text-gray-400">
+                    Earlier charts are available under Auto-captured snapshots
+                    below.
+                  </span>
+                )}
+              </div>
             ) : (
               <div className="flex items-center justify-center min-h-[360px] text-gray-400 text-sm border border-dashed rounded">
                 Awaiting data
@@ -295,6 +599,46 @@ Northwest winds may approach warning criteria.`}
           </CardContent>
         </Card>
       </div>
+
+      {snapshots && snapshots.length > 0 && (
+        <details className="border rounded-lg bg-white text-sm">
+          <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">
+            Auto-captured snapshots{' '}
+            <span className="text-xs font-normal text-gray-500">
+              ({snapshots.length} saved — automatically captured whenever
+              issued alerts change)
+            </span>
+          </summary>
+          <div className="px-4 pb-4 pt-1 border-t flex flex-col gap-2">
+            <p className="text-xs text-gray-500 py-2">
+              {noActiveAlerts
+                ? "Nothing is in force right now, so no chart is shown by default — pick a snapshot to see how things looked earlier (edits in the bars editor below are temporary and won't be saved back to the snapshot)."
+                : "The latest is shown by default — pick an older one to view it (and try edits in the bars editor below, though those edits are temporary and won't be saved back to the snapshot)."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {snapshots.map((snap, i) => (
+                <Button
+                  key={snap.id}
+                  size="sm"
+                  variant={
+                    selectedSnapshotId === snap.id ? 'default' : 'secondary'
+                  }
+                  onClick={() => {
+                    trackEvent('gantt_snapshot_view', {
+                      latest: i === 0 && !noActiveAlerts,
+                    });
+                    selectSnapshot(snap);
+                  }}
+                >
+                  {i === 0 && !noActiveAlerts
+                    ? 'Latest'
+                    : formatSnapshotTime(snap.insertedAt)}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </details>
+      )}
 
       {chart && (
         <GanttBarEditor bars={chart.bars} onChange={onBarsChange} />

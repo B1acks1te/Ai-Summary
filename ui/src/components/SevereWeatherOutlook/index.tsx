@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/card';
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
 import {
   toastError,
   toastInfo,
@@ -71,6 +72,7 @@ export default function SevereWeatherOutlook() {
   const updateSevereWeatherOutlook = useCallback(
     lodash.throttle(async () => {
       if (!isUpdating) {
+        trackEvent('refresh_click', { panel: 'severe_weather_outlook' });
         await fetchLatestSevereWeatherOutlook();
       }
     }, 10000),
@@ -87,14 +89,14 @@ export default function SevereWeatherOutlook() {
         <CardTitle>
           <ButtonGroup className="w-full flex">
             <Button
-              className="flex-1 h-12"
+              className="flex-1 min-w-0 h-12 px-2 text-xs sm:text-sm truncate"
               onClick={() => setActiveOutlookTab('severeWeatherOutlook')}
             >
               Severe Weather Outlook
             </Button>
             <Button
               variant={'outline'}
-              className="flex-1 text-black/65 h-12"
+              className="flex-1 min-w-0 text-black/65 h-12 px-2 text-xs sm:text-sm truncate"
               onClick={() => setActiveOutlookTab('thunderstormOutlook')}
             >
               Thunderstorm Outlook
@@ -102,9 +104,9 @@ export default function SevereWeatherOutlook() {
           </ButtonGroup>
         </CardTitle>
         <CardDescription className="mt-2 ml-1">
-          <div className="flex gap-6 items-start justify-between">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-4">
+          <div className="flex flex-wrap gap-2 items-start justify-between">
+            <div className="flex flex-col gap-1 min-w-0">
+              <div className="flex items-center gap-4 flex-wrap">
                 <span>
                   Source:{' '}
                   <a

@@ -1,3 +1,4 @@
+import { trackEvent } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks';
 import { FaRegCopy } from 'react-icons/fa';
 import { toast } from 'sonner';
@@ -7,6 +8,7 @@ export function CopyIcon({ content }: { content: string }) {
 
   const onClick = () => {
     copy(content);
+    trackEvent('copy_line');
     toast.success('Copied to clipboard');
   };
 

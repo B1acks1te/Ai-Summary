@@ -1,5 +1,7 @@
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
+import { setFeedbackContext } from '@/lib/feedbackContext';
 import { cn } from '@/lib/utils';
 import {
   useIssuedWarningsAndWatches,
@@ -268,6 +270,15 @@ export function AISummary() {
     isSevereWeatherOutlookAISummaryFetching ||
     isThunderstormOutlookAISummaryFetching;
 
+  // Give the Feedback form the AI summary's timestamp as context.
+  const generatedAtLabel = generatedAt
+    ? DateTime.fromJSDate(generatedAt).toFormat('h:mm a EEE, d LLL yyyy')
+    : undefined;
+  useEffect(() => {
+    setFeedbackContext({ ai_summary_generated_at: generatedAtLabel });
+    return () => setFeedbackContext({ ai_summary_generated_at: undefined });
+  }, [generatedAtLabel]);
+
   const handleGeneratedAtClick = () => {
     console.log(
       `\n*** AI Summary Generation Time Details ***\nissuedWarningsAndWatches: ${issuedWarningsAndWatches?.id}\ninsertedAt: ${issuedWarningsAndWatches?.insertedAt}\n\nsevereWeatherOutlook: ${severeWeatherOutlook?.id}\n\nthunderstormOutlook: ${thunderstormOutlook?.id}\n\nsevereWeatherOutlookAISummary: ${severeWeatherOutlookAISummary?.id}\ngeneratedAt: ${severeWeatherOutlookAISummary?.generatedAt}\n\nthunderstormOutlookAISummary: ${thunderstormOutlookAISummary?.id}\ngeneratedAt: ${thunderstormOutlookAISummary?.generatedAt}\n*******************************\n`,
@@ -359,7 +370,10 @@ function RegenerateButtonGroup({
       <Button
         className="cursor-pointer ml-4"
         variant="outline"
-        onClick={regenerateAll}
+        onClick={() => {
+          trackEvent('summary_regenerate', { scope: 'all' });
+          regenerateAll();
+        }}
         disabled={isAIGenerating}
       >
         Regenerate
@@ -373,11 +387,21 @@ function RegenerateButtonGroup({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-65">
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={regenerateSevereWether}>
+            <DropdownMenuItem
+              onClick={() => {
+                trackEvent('summary_regenerate', { scope: 'severe_weather_outlook' });
+                regenerateSevereWether();
+              }}
+            >
               <IoRainy className="text-black" />
               Severe Weather Outlook Only
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={regenerateThunderstorm}>
+            <DropdownMenuItem
+              onClick={() => {
+                trackEvent('summary_regenerate', { scope: 'thunderstorm_outlook' });
+                regenerateThunderstorm();
+              }}
+            >
               <AiFillThunderbolt className="text-black" />
               Thunderstorm Outlook Only
             </DropdownMenuItem>

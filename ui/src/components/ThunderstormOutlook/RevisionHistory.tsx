@@ -3,6 +3,7 @@ import { useThunderstormOutlook } from '@/queries';
 import { getThunderstormOutlookCollection } from '@/lib/mongodb';
 import type { ThunderstormOutlook, ThunderstormOutlookResp } from '@/types';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
+import { trackEvent } from '@/lib/analytics';
 import { useQuery } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
 import { useState } from 'react';
@@ -43,7 +44,11 @@ export function RevisionHistory() {
   }
 
   return (
-    <Dialog>
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) trackEvent('revision_history_open', { panel: 'thunderstorm_outlook' });
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           Revision History

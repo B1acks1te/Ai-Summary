@@ -373,15 +373,22 @@ export class ScrapeService {
             failed: false,
             stale: true,
           });
+          await this.captureGanttSnapshot();
         } else {
           this.logger.log(
             'Result: New day update detected. Inserting new entries.',
           );
-          // new day
+          // new day — still work out new/updated status against the previous
+          // record so the first update of the day gets its badges, but drop
+          // the 'removed' entries so yesterday's cleared alerts don't carry
+          // over (that's the point of the daily reset).
           await this.scrapeRepository.insertIssuedAlerts({
             updatedAt: new Date(feed.updated),
             updatedAtISO: feed.updated,
-            entries: issuedWarningsAndWatches,
+            entries: this.updateStatus(
+              issuedWarningsAndWatches,
+              latestRecord.entries,
+            ).filter((e) => e._status !== 'removed'),
             insertedAt: new Date(),
           });
           await this.ablyPublishToClient({
@@ -391,6 +398,7 @@ export class ScrapeService {
             failed: false,
             stale: true,
           });
+          await this.captureGanttSnapshot();
         }
       } else {
         this.logger.log('No existing data found. Inserting initial data.');
@@ -407,6 +415,7 @@ export class ScrapeService {
           failed: false,
           stale: true,
         });
+        await this.captureGanttSnapshot();
       }
       this.logger.log('*** Finished querying issued warnings and watches ***');
     } catch (error) {
@@ -482,7 +491,18 @@ export class ScrapeService {
       ChanceOfUpgrade: this.getChanceOfUpgrade(alert),
       _status: '',
       _history,
+      _replaces: this.getReferencedIds(alert),
     };
+  }
+  // references format: "sender,identifier,sent", space-separated if there is
+  // more than one. Returns just the identifiers.
+  private getReferencedIds(alert: Alert): string[] {
+    if (!alert.references) return [];
+    return alert.references
+      .trim()
+      .split(/\s+/)
+      .map((ref) => ref.split(',')[1])
+      .filter((id): id is string => Boolean(id));
   }
   private getColourCode(alert: Alert): string | undefined {
     return alert.info.parameter.find((p) => p.valueName === 'ColourCode')
@@ -498,31 +518,91 @@ export class ScrapeService {
   ): IssuedAlert[] {
     const newIds = newEntries.map((e) => e.id);
     const oldIds = oldEntries.map((e) => e.id);
+    const oldById = new Map(oldEntries.map((e) => [e.id, e]));
 
     this.logger.log('New IDs:', newIds);
     this.logger.log('Old IDs:', oldIds);
 
-    const updatedEntries: IssuedAlert[] = newEntries.map((entry) => {
-      if (!oldIds.includes(entry.id)) {
-        if (
-          intersection(
-            oldIds,
-            entry._history.map((h) => h.id),
-          ).length > 0
-        ) {
-          // oldIds exist in entry history ids
-          return { ...entry, _status: 'updated' };
-        } else {
-          return { ...entry, _status: 'new' };
-        }
-      }
-      return entry;
+    // Pass 1: link each new alert to old alerts by ID. That can be through
+    // the history chain or, when MetService no longer serves an old alert (so
+    // the chain can't be walked), through the `references` on the new alert.
+    const linked: string[][] = newEntries.map((entry) => {
+      if (oldIds.includes(entry.id)) return [];
+      return intersection(oldIds, [
+        ...entry._history.map((h) => h.id),
+        ...(entry._replaces ?? []),
+      ]);
     });
 
-    const allIds = [
-      ...newIds,
-      ...newEntries.flatMap(({ _history }) => _history.map((h) => h.id)),
-    ];
+    // Pass 2: fallback for alerts still unlinked. MetService sometimes
+    // reissues an alert twice in quick succession, so the new alert
+    // references an intermediate one we never stored and the ID chain has a
+    // gap. If an old alert (not already claimed, not removed) has the same
+    // event and area, treat the new alert as its continuation.
+    const norm = (v: string | undefined) => (v ?? '').trim().toLowerCase();
+    const contentKey = (e: IssuedAlert) =>
+      `${norm(e.event)}|${norm(e.areaDesc)}`;
+    const claimed = new Set(linked.flat());
+    const candidates = oldEntries.filter(
+      (o) =>
+        o._status !== 'removed' && !newIds.includes(o.id) && !claimed.has(o.id),
+    );
+    newEntries.forEach((entry, i) => {
+      if (oldIds.includes(entry.id) || linked[i].length > 0) return;
+      const idx = candidates.findIndex(
+        (o) => contentKey(o) === contentKey(entry),
+      );
+      if (idx === -1) return;
+      linked[i] = [candidates[idx].id];
+      candidates.splice(idx, 1);
+    });
+
+    const updatedEntries: IssuedAlert[] = newEntries.map((entry, i) => {
+      if (oldIds.includes(entry.id)) {
+        // Already stored. Keep any history we spliced in on an earlier update
+        // that the ID chain can't rebuild (the feed alone only gives us the
+        // chain), otherwise the previous revision would vanish next update.
+        const prior = oldById.get(entry.id);
+        const kept = (prior?._history ?? []).filter(
+          (h) => !entry._history.some((x) => x.id === h.id),
+        );
+        if (kept.length === 0) return entry;
+        const history = [...entry._history, ...kept].sort(
+          (a, b) => new Date(b.sent).getTime() - new Date(a.sent).getTime(),
+        );
+        return { ...entry, _history: history };
+      }
+      if (linked[i].length === 0) {
+        return { ...entry, _status: 'new' };
+      }
+
+      // Splice in any linked old alert the history chain didn't reach, so
+      // the timeline (and Reissue check) still see the previous revision.
+      const historyIds = entry._history.map((h) => h.id);
+      const history = [...entry._history];
+      for (const oldId of linked[i]) {
+        if (historyIds.includes(oldId)) continue;
+        const oldEntry = oldById.get(oldId);
+        if (!oldEntry) continue;
+        const oldChain = oldEntry._history.length
+          ? oldEntry._history
+          : [{ ...oldEntry, _history: [], _status: '' as const }];
+        for (const h of oldChain) {
+          if (!history.some((x) => x.id === h.id)) history.push(h);
+        }
+      }
+      history.sort(
+        (a, b) => new Date(b.sent).getTime() - new Date(a.sent).getTime(),
+      );
+
+      return { ...entry, _history: history, _status: 'updated' };
+    });
+
+    const allIds = updatedEntries.flatMap((e) => [
+      e.id,
+      ...e._history.map((h) => h.id),
+      ...(e._replaces ?? []),
+    ]);
 
     oldEntries
       .filter((entry) => !allIds.includes(entry.id))
@@ -532,6 +612,23 @@ export class ScrapeService {
 
     return updatedEntries;
   }
+  // Auto-capture a Gantt snapshot whenever issued alerts genuinely change.
+  // Self-contained (reads the just-inserted alerts back from Mongo), so it
+  // can be called identically from any of the three "new data" branches
+  // above. Failures here are logged and swallowed — a Gantt generation
+  // problem should never break alert processing itself.
+  private async captureGanttSnapshot() {
+    try {
+      const text = await this.scrapeRepository.getLatestIssuedAlertsAsText();
+      if (!text) return;
+      const chart = await this.aiGenerateService.generateGanttChart(text);
+      await this.scrapeRepository.insertGanttSnapshot(chart);
+      this.logger.log('Auto-captured a new Gantt snapshot.');
+    } catch (error) {
+      this.logger.error(`Failed to auto-capture Gantt snapshot: ${error}`);
+    }
+  }
+
   private async ablyPublishToClient({
     event,
     message,

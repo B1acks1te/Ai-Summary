@@ -86,6 +86,12 @@ export class AppController {
     try {
       const text = await this.scrapeRepository.getLatestIssuedAlertsAsText();
       if (!text) {
+        // Nothing in force is a valid answer, not an error — the UI shows a
+        // "No watches or warnings in force" holding message for it.
+        const activeCount = await this.scrapeRepository.countActiveIssuedAlerts();
+        if (activeCount === 0) {
+          return { ok: true, noActiveAlerts: true };
+        }
         return {
           ok: false,
           error: 'No issued alerts found in the database yet.',
@@ -93,6 +99,37 @@ export class AppController {
       }
       const chart = await this.aiGenerateService.generateGanttChart(text);
       return { ok: true, chart, sourceText: text };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  // ------------------------------------------------------------
+  // GANTT — the last up-to-5 auto-captured snapshots, newest first.
+  // Captured automatically whenever issued alerts change (see
+  // ScrapeService.captureGanttSnapshot). Read-only from the UI's
+  // perspective — viewing/editing an old one in the bars editor is a
+  // local-only operation and never writes back here.
+  // ------------------------------------------------------------
+  @Get('gantt-snapshots')
+  async getGanttSnapshots() {
+    try {
+      const snapshots = await this.scrapeRepository.getGanttSnapshots();
+      // Snapshots are only captured while alerts are in force, so once
+      // everything expires the newest snapshot is stale. Tell the UI so it can
+      // show "No watches or warnings in force" instead of that old chart.
+      const activeCount = await this.scrapeRepository.countActiveIssuedAlerts();
+      return {
+        ok: true,
+        noActiveAlerts: activeCount === 0,
+        snapshots: snapshots.map((s) => ({
+          id: s._id.toString(),
+          chart_title: s.chart_title,
+          bars: s.bars,
+          notes: s.notes,
+          insertedAt: s.insertedAt,
+        })),
+      };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

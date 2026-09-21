@@ -1,4 +1,5 @@
 import z from 'zod';
+import type { GanttBar } from '../services/ai-generate/schema';
 
 export type SevereWeatherDoc = {
   insertedAt: Date;
@@ -17,6 +18,13 @@ export type ThunderstormDoc = {
     issuedDate: string;
   }[];
   refIssuedDates: string[];
+};
+
+export type GanttSnapshotDoc = {
+  insertedAt: Date;
+  chart_title: string;
+  bars: GanttBar[];
+  notes: string[];
 };
 
 export type UpsertStatus = 'inserted' | 'unchanged';
@@ -70,6 +78,10 @@ export type IssuedAlert = {
   areaDesc: string;
   _status: 'removed' | 'updated' | 'new' | '';
   _history: IssuedAlert[];
+  // IDs of the alerts this one says it replaces (from the CAP `references`
+  // field). Kept even when MetService no longer serves those old alerts, so
+  // status can still be linked to the previous record.
+  _replaces?: string[];
   ColourCode?: string;
   ChanceOfUpgrade?: string;
 };

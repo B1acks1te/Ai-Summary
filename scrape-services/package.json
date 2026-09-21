@@ -11,7 +11,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.9",
     "hono": "^4.11.4",
-    "playwright": "^1.57.0"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",

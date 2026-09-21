@@ -1,3 +1,4 @@
+import { trackEvent } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import type { IssuedAlert } from '@/types/alert';
 import { useState } from 'react';
@@ -12,7 +13,10 @@ export function DetailsToggle({ issuedAlert }: { issuedAlert: IssuedAlert }) {
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen((s) => !s)}
+        onClick={() => {
+          trackEvent('alert_details_toggle', { open: !open });
+          setOpen((s) => !s);
+        }}
         className="text-sm text-blue-600 hover:underline mt-2"
       >
         {open ? 'Hide details ▲' : 'Show details ▼'}

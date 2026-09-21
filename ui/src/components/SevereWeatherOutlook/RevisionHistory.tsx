@@ -1,6 +1,7 @@
 import { getSevereWeatherOutlookCollection } from '@/lib/mongodb';
 import { useSevereWeatherOutlook } from '@/queries';
 import type { SevereWeatherOutlook } from '@/types';
+import { trackEvent } from '@/lib/analytics';
 import { useQuery } from '@tanstack/react-query';
 import { createServerFn } from '@tanstack/react-start';
 import { useState } from 'react';
@@ -31,7 +32,11 @@ export function RevisionHistory() {
   }
 
   return (
-    <Dialog>
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) trackEvent('revision_history_open', { panel: 'severe_weather_outlook' });
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           Revision History

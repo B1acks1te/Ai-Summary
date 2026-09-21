@@ -100,6 +100,7 @@ GEOGRAPHIC ORDERING (north to south):
 Northland, Great Barrier Island, Auckland, Coromandel Peninsula, Waikato, Bay of Plenty, Taupo, Taumarunui, Gisborne, Hawke's Bay, Taranaki, Taranaki Maunga, Taihape, Whanganui, Manawatu, Horowhenua, Kapiti Coast, Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman, Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura, Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart Island.
 - Regions not in list: place by approximate geography.
 - Same region grouped together if multiple hazard types.
+- LATITUDE: for EVERY bar also output \"latitude\" — the approximate latitude in decimal degrees of the centre of that bar's location, NEGATIVE because NZ is in the southern hemisphere (2 decimal places). Examples: Auckland -36.85, Hawke's Bay -39.60, Wellington -41.29, Lewis Pass -42.38, Arthur's Pass -42.94, Lindis Pass -44.60, Crown Range Road -44.90, Dunedin -45.87, Stewart Island -47.00. For a road or pass use the midpoint of the named road. This is used to place locations that are NOT in the list above, so be as accurate as you can.
 - SEVERITY SORT WITHIN A REGION GROUP — MANDATORY: when a region has more than one bar (multiple hazard types and/or severities), sort them red_warning > orange_warning > warning > watch, then rain before wind before snow before road_snow if severity ties. Warnings ALWAYS come before watches for the same region, with NO exceptions — this applies regardless of which hazard type (rain/wind/snow/road_snow) each bar is, and regardless of the order the source text mentions them in.
 
 WORKED EXAMPLE — mixed severity within one region:
@@ -131,6 +132,7 @@ VALIDATION CHECKLIST — run before outputting:
 10. HAZARD CHECK: Heavy Snow Watch/Warning entries use hazard_type "snow"; Road Snowfall Warning entries use hazard_type "road_snow" — never "rain", and never mix these two up.
 11. CASE CHECK: every label's "(severity hazardtype)" portion is fully lowercase.
 12. SNOW TYPE CHECK: Road Snowfall Warning uses hazard_type "road_snow" and "road snowfall" wording (e.g. "Milford Road (road snowfall warning)") with severity "warning" (never a colour); Heavy Snow Watch/Warning uses hazard_type "snow" and "snow" wording (e.g. "Southland (snow watch)") and follows normal regional colour rules — the two are never conflated in either field.
+13. LATITUDE CHECK: every bar has a numeric \"latitude\" (negative, roughly between -47.5 and -34) that matches where its location really is.
 
 OUTPUT: Use the supplied tool exactly once with the structured arguments. Do not narrate or explain.
 peak_start and peak_end are optional fields — include ONLY when justified per peak intensity rules. The chart_title format is "Weather Warnings and Watches - DD Month YYYY".`;

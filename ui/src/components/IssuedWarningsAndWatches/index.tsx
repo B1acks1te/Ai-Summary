@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/hover-card';
 import { useNHISChannel } from '@/hooks';
 import { EVENT } from '@/lib/ably';
+import { trackEvent } from '@/lib/analytics';
+import { setFeedbackContext } from '@/lib/feedbackContext';
 import {
   toastError,
   toastInfo,
@@ -48,6 +50,23 @@ export default function IssuedWarningsAndWatches() {
 
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Give the Feedback form some dashboard context (counts and times only).
+  const alertsUpdatedAt = issuedWarningsAndWatches?.updatedAt;
+  const alertsCount = issuedWarningsAndWatches?.entries.length;
+  useEffect(() => {
+    setFeedbackContext({
+      alerts_last_updated: alertsUpdatedAt
+        ? formatUTCToNZDate(alertsUpdatedAt)
+        : undefined,
+      alerts_count: alertsCount,
+    });
+    return () =>
+      setFeedbackContext({
+        alerts_last_updated: undefined,
+        alerts_count: undefined,
+      });
+  }, [alertsUpdatedAt, alertsCount]);
+
   useNHISChannel((message) => {
     console.log(
       `Received ${message.name} message: ${JSON.stringify(message.data)} at ${DateTime.now().setZone('Pacific/Auckland').toISO()}`,
@@ -81,6 +100,7 @@ export default function IssuedWarningsAndWatches() {
   const updateIssuedAlerts = useCallback(
     lodash.throttle(async () => {
       if (!isUpdating) {
+        trackEvent('refresh_click', { panel: 'issued_alerts' });
         await fetchLatestIssuedAlerts();
       }
     }, 10000),
@@ -156,6 +176,26 @@ function LoadingSkeleton() {
   );
 }
 
+// A "reissue" is when the latest revision matches the one before it on the
+// things that matter operationally: area, period, chance of upgrade and
+// severity (both the CAP severity and the colour code, since a colour change
+// is a real upgrade/downgrade). Wording changes in the description are
+// deliberately ignored. Needs at least two revisions to compare. History is
+// newest-first, so [0] is the latest and [1] is the one it replaced.
+function isReissue(history: IssuedAlert[]): boolean {
+  if (history.length < 2) return false;
+  const [latest, previous] = history;
+  const norm = (v: string | undefined) => (v ?? '').trim();
+  return (
+    norm(latest.areaDesc) === norm(previous.areaDesc) &&
+    norm(latest.onset) === norm(previous.onset) &&
+    norm(latest.expires) === norm(previous.expires) &&
+    norm(latest.ChanceOfUpgrade) === norm(previous.ChanceOfUpgrade) &&
+    norm(latest.severity) === norm(previous.severity) &&
+    norm(latest.ColourCode) === norm(previous.ColourCode)
+  );
+}
+
 function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
   const {
     id,
@@ -169,6 +209,10 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
     // description intentionally unused here; Details component uses the whole object
     // keep property to avoid changing shape
   } = issuedAlert;
+
+  // A reissue is technically an "updated" alert (new ID replacing the old
+  // one) but nothing meaningful changed, so show Reissue instead of Updated.
+  const reissue = isReissue(_history);
 
   const scrollIntoViewRef = useRef<HTMLDivElement | null>(null);
 
@@ -194,7 +238,12 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
     }
   }, [activeAlertReference]);
   return (
-    <HoverCard>
+    <HoverCard
+      onOpenChange={(open) => {
+        // only count it when there is actually a timeline to show
+        if (open && _history.length > 0) trackEvent('alert_timeline_view');
+      }}
+    >
       <HoverCardTrigger asChild>
         <div
           ref={ref}
@@ -212,7 +261,7 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
               {formatUTCToNZDate(new Date(sent))}
             </span>
             <div className="flex gap-1 justify-center items-center">
-              {_status && (
+              {_status && !(reissue && _status === 'updated') && (
                 <Badge
                   variant={'outline'}
                   className={cn(
@@ -234,6 +283,15 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
                   {_history.length}
                 </Badge>
               )}
+              {reissue && (
+                <Badge
+                  variant={'outline'}
+                  title="No change to area, period, chance of upgrade or severity"
+                  className="text-xs font-semibold border-amber-500 text-amber-600"
+                >
+                  Reissue
+                </Badge>
+              )}
             </div>
           </div>
           <AlertIndicator data={issuedAlert} />
@@ -246,7 +304,7 @@ function AlertCard({ issuedAlert }: { issuedAlert: IssuedAlert }) {
             <span>{getPeriodDescription(onset, expires)}</span>
           </div>
           <div>
-            <span className="font-bold">ChanceOfUpgrade: </span>
+            <span className="font-bold">Chance Of Upgrade: </span>
             <span>{ChanceOfUpgrade || 'N/A'}</span>
           </div>
 

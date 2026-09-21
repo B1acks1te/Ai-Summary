@@ -1,3 +1,4 @@
+import { FeedbackAdmin } from '@/components/Feedback/FeedbackAdmin';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,7 @@ export const Route = createFileRoute('/search/')({
 function RouteComponent() {
   return (
     <div className="flex flex-col gap-6 p-8">
+      <FeedbackAdmin />
       <SearchSevereWeatherOutlook />
       <SearchThunderstormOutlook />
       <SearchIssuedWarningsAndWatches />
