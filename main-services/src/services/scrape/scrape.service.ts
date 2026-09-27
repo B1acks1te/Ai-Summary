@@ -299,8 +299,8 @@ export class ScrapeService {
         (alert): alert is Alert => alert !== null,
       );
 
-      const issuedWarningsAndWatches: IssuedAlert[] = validAlerts.map(
-        (alert) => this.convertAlertToIssuedAlert(alert),
+      const issuedWarningsAndWatches: IssuedAlert[] = validAlerts.map((alert) =>
+        this.convertAlertToIssuedAlert(alert),
       );
 
       const latestRecord = await this.scrapeRepository.findLatestIssuedAlerts();
@@ -309,7 +309,23 @@ export class ScrapeService {
         `${latestRecord?.updatedAtISO} - Latest Feed from DB updated at`,
       );
 
-      if (latestRecord?.updatedAtISO === feed.updated) {
+      // MetService's <updated> timestamp is not always trustworthy on its
+      // own - it has been observed to stay unchanged even after MetService
+      // cleared every alert from the feed (27 Sep 2026: the timestamp stuck
+      // at 10:11:15 while the alert count dropped from several to one).
+      // So alongside the timestamp, also compare the actual set of active
+      // alert IDs; proceed with the update if either has changed.
+      const newIds = new Set(issuedWarningsAndWatches.map((e) => e.id));
+      const previousActiveIds = new Set(
+        (latestRecord?.entries ?? [])
+          .filter((e) => e._status !== 'removed')
+          .map((e) => e.id),
+      );
+      const idsUnchanged =
+        newIds.size === previousActiveIds.size &&
+        [...newIds].every((id) => previousActiveIds.has(id));
+
+      if (latestRecord?.updatedAtISO === feed.updated && idsUnchanged) {
         this.logger.log('Issued Alerts are already up-to-date.');
         await this.ablyPublishToClient({
           event: NHISCHANNEL_EVENTS.ISSUED_ALERTS_UPDATED,
@@ -319,7 +335,14 @@ export class ScrapeService {
           stale: false,
         });
       } else if (latestRecord) {
-        // different updatedAt, need to check if same day
+        // Either the feed's updatedAt changed, or the active alert IDs did
+        // (see idsUnchanged above) - either way, something changed and we
+        // need to work out whether it's still the same day.
+        if (idsUnchanged) {
+          this.logger.log(
+            'updatedAt unchanged but the active alert IDs differ from the stored record - proceeding with update anyway.',
+          );
+        }
         const newFeedUpdatedAt = DateTime.fromISO(feed.updated, {
           setZone: true,
         });
@@ -429,6 +452,17 @@ export class ScrapeService {
       `https://alerts.metservice.com/cap/alert?id=${id}`,
     );
     const alertData = await alertResponse.text();
+
+    // A 404 here is expected once an old alert (referenced by a newer one's
+    // `references` chain) has aged off MetService's server - it just means
+    // the history chain ends there, not that anything is broken.
+    if (alertResponse.status === 404) {
+      this.logger.warn(
+        `Alert id ${id} is no longer available from MetService (404) - history chain ends here.`,
+      );
+      return undefined;
+    }
+
     const parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: '',
@@ -450,9 +484,8 @@ export class ScrapeService {
     while (currentId) {
       const alert = await this.fetchAlertById(currentId);
       if (!alert) {
-        this.logger.error(
-          `Malformed/empty alert response while fetching history for id: ${currentId}`,
-        );
+        // fetchAlertById has already logged why (404 = expected end of
+        // chain, warn; anything else = a genuine error, already logged).
         break;
       }
       history.push(alert);
