@@ -1,3 +1,4 @@
+import { getCurrentNotice } from '@/serverFuncs/Notice';
 import {
   fetchSevereWeatherOutlook,
   fetchThunderstormOutlook,
@@ -5,6 +6,13 @@ import {
 } from '@/serverFuncs/fetch';
 
 import { useQuery } from '@tanstack/react-query';
+
+export const useCurrentNotice = () =>
+  useQuery({
+    queryKey: ['currentNotice'],
+    queryFn: async () => getCurrentNotice(),
+    staleTime: Infinity,
+  });
 
 export const useIssuedWarningsAndWatches = () =>
   useQuery({

@@ -1,4 +1,5 @@
 import { FeedbackButton } from '@/components/Feedback/FeedbackButton';
+import { NoticeBanner } from '@/components/Notice/NoticeBanner';
 import { Link } from '@tanstack/react-router';
 
 const SHOW_DEV_BANNER = import.meta.env.VITE_SHOW_DEV_BANNER === 'true';
@@ -23,7 +24,9 @@ export default function Header() {
             <Link
               to="/"
               className="px-2 sm:px-3 py-1 rounded hover:bg-white/15 transition-colors"
-              activeProps={{ className: 'bg-white/20 px-2 sm:px-3 py-1 rounded' }}
+              activeProps={{
+                className: 'bg-white/20 px-2 sm:px-3 py-1 rounded',
+              }}
               activeOptions={{ exact: true }}
             >
               Dashboard
@@ -31,7 +34,9 @@ export default function Header() {
             <Link
               to="/gantt"
               className="px-2 sm:px-3 py-1 rounded hover:bg-white/15 transition-colors"
-              activeProps={{ className: 'bg-white/20 px-2 sm:px-3 py-1 rounded' }}
+              activeProps={{
+                className: 'bg-white/20 px-2 sm:px-3 py-1 rounded',
+              }}
             >
               Gantt
             </Link>
@@ -39,6 +44,7 @@ export default function Header() {
           </nav>
         </div>
       </div>
+      <NoticeBanner />
     </div>
   );
 }
