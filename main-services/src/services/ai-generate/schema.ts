@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DAY_ABBREVIATIONS } from './dateAnchor';
+import { HAZARD_TYPES, SEVERITIES } from './headingParser';
 
 // heavy rain, strong wind, or heavy snow (https://about.metservice.com/about-severe-weather-warnings#types)
 const WATCHES = z.enum([
@@ -63,34 +64,49 @@ export type ThunderstormAISummary = z.infer<typeof ThunderstormAISummarySchema>;
 // ------------------------------------------------------------
 // Gantt — used by the new gantt feature
 // ------------------------------------------------------------
-export const GanttHazardTypeEnum = z.enum([
-  'rain',
-  'wind',
-  'snow',
-  'road_snow',
-  'thunderstorm',
-]);
-export const GanttSeverityEnum = z.enum([
-  'red_warning',
-  'orange_warning',
-  'warning',
-  'watch',
-]);
+export const GanttHazardTypeEnum = z.enum(HAZARD_TYPES);
+export const GanttSeverityEnum = z.enum(SEVERITIES);
 
 const GanttDayAbbrevEnum = z.enum(DAY_ABBREVIATIONS);
 
 // This is the schema the AI's tool-use output is validated against — it
-// carries extra "day name as literally written in the source" fields
-// (start_day/end_day/peak_start_day/peak_end_day) that exist ONLY to let
-// ai-generate.service.ts deterministically recompute the actual calendar
-// dates afterwards (see dateAnchor.ts for why). Those fields never leave
-// main-services — the public GanttBar/GanttChart types below (used by the
-// UI, the snapshot repository, everywhere else) don't have them.
+// carries extra fields that exist ONLY to let ai-generate.service.ts
+// deterministically recompute things afterwards rather than trust the AI's
+// own composition of them: start_day/end_day/peak_start_day/peak_end_day
+// for dates (see dateAnchor.ts), and qualifier/heading_text for the final
+// label text (see headingParser.ts). None of these extraction-only fields
+// leave main-services — the public GanttBar/GanttChart types below (used by
+// the UI, the snapshot repository, everywhere else) don't have them; this
+// schema's `label` field doesn't exist at all, because the AI no longer
+// composes it — it's built deterministically in ai-generate.service.ts from
+// region + qualifier + a severity/hazard suffix computed by headingParser.ts.
 const GanttBarExtractionSchema = z.object({
+  // Bare region/area name ONLY — no positional qualifier, no severity text.
+  // Keep any fused name-modifying word (e.g. "Inland Canterbury", not
+  // "Canterbury") but never a qualifier like "north of Lake Sumner" here —
+  // that belongs in `qualifier` below. See ganttPrompt.ts's NAMING RULES.
   region: z.string(),
+  // Positional qualifier ONLY, with no surrounding parentheses (e.g. "north
+  // of Lake Sumner", "south of Westport", "not including hill country north
+  // of Lumsden above 400 metres") — omit entirely when the area has none.
+  // Never fold this into `region`, and never drop it when the source has
+  // one, however long it is.
+  qualifier: z.string().optional(),
+  // The exact heading line this bar's "Area:" block sits under, copied
+  // VERBATIM from the source — e.g. "Heavy Rain Warning - Orange", "Heavy
+  // Rain Watch", "Road Snowfall Warning", "Severe Thunderstorm Watch". This
+  // is a COPY task, not a classification task: headingParser.ts
+  // deterministically derives hazard_type/severity/the label's colour and
+  // hazard wording from this string afterwards, which is what actually
+  // guarantees the label is correct — do not paraphrase or abbreviate it.
+  // A later "Area:" block that sits under the SAME heading as an earlier
+  // one (no new heading line in between) copies that SAME heading text.
+  heading_text: z.string(),
+  // Fallback only — used ONLY when headingParser.ts can't recognise
+  // heading_text (an unfamiliar heading shape). Follow the same hazard/
+  // severity rules described throughout this prompt for these.
   hazard_type: GanttHazardTypeEnum,
   severity: GanttSeverityEnum,
-  label: z.string(),
   // AI's best-effort full ISO datetime — TRUSTED ONLY for its HH:MM time
   // portion. The DATE portion is recomputed deterministically afterwards
   // from start_day/end_day + the source's "Issued:" anchor date; see
@@ -129,17 +145,26 @@ export const GanttChartSchema = z.object({
   notes: z.array(z.string()),
 });
 
-// Raw AI tool-use output — day-name fields included. Used only inside
-// ai-generate.service.ts, before date correction.
+// Raw AI tool-use output — day-name and label-composition fields included.
+// Used only inside ai-generate.service.ts, before date correction and label
+// assembly.
 export type GanttBarExtraction = z.infer<typeof GanttBarExtractionSchema>;
 export type GanttChartExtraction = z.infer<typeof GanttChartSchema>;
 
-// Public shape — identical to the pre-existing contract (no day-name
-// fields) — used by everything downstream: the UI, snapshot storage, etc.
+// Public shape — identical to the pre-existing contract — used by
+// everything downstream: the UI, snapshot storage, etc. Strips the
+// extraction-only fields (day names, qualifier, heading_text) and adds back
+// `label` as a field ai-generate.service.ts computes deterministically,
+// rather than one the AI composed itself.
 export type GanttBar = Omit<
   GanttBarExtraction,
-  'start_day' | 'end_day' | 'peak_start_day' | 'peak_end_day'
->;
+  | 'start_day'
+  | 'end_day'
+  | 'peak_start_day'
+  | 'peak_end_day'
+  | 'qualifier'
+  | 'heading_text'
+> & { label: string };
 export type GanttChart = Omit<GanttChartExtraction, 'bars'> & {
   bars: GanttBar[];
 };
