@@ -2,14 +2,30 @@ import { EVENT } from '@/lib/ably';
 import { useNHISChannel } from '@/hooks';
 import { useCurrentNotice } from '@/queries';
 import type { NoticeItem } from '@/serverFuncs/Notice';
+import { AlertTriangle, Info, Siren } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const DISMISS_KEY_PREFIX = 'notice-dismissed-';
 
+// Bold + icon, static — larger/heavier type and a level-appropriate icon so
+// the banner reads as important at a glance, deliberately without any
+// scrolling/pulsing motion (distracting, and avoided for accessibility).
 const LEVEL_STYLE: Record<NoticeItem['level'], string> = {
-  info: 'bg-blue-50 text-blue-900 border-blue-200',
-  warning: 'bg-amber-50 text-amber-900 border-amber-200',
-  critical: 'bg-red-50 text-red-900 border-red-300',
+  info: 'bg-blue-50 text-blue-900 border-blue-300',
+  warning: 'bg-amber-50 text-amber-900 border-amber-400',
+  critical: 'bg-red-50 text-red-900 border-red-400',
+};
+
+const LEVEL_ICON: Record<NoticeItem['level'], typeof Info> = {
+  info: Info,
+  warning: AlertTriangle,
+  critical: Siren,
+};
+
+const LEVEL_ICON_COLOR: Record<NoticeItem['level'], string> = {
+  info: 'text-blue-600',
+  warning: 'text-amber-600',
+  critical: 'text-red-600',
 };
 
 function isLive(notice: NoticeItem, nowMs: number): boolean {
@@ -89,10 +105,17 @@ export function NoticeBanner() {
 
   if (!notice || dismissed || !isLive(notice, Date.now())) return null;
 
+  const Icon = LEVEL_ICON[notice.level];
+
   return (
     <div
-      className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${LEVEL_STYLE[notice.level]}`}
+      role={notice.level === 'critical' ? 'alert' : 'status'}
+      className={`flex items-center gap-3 border-b-2 px-4 py-3 text-sm sm:text-base font-semibold ${LEVEL_STYLE[notice.level]}`}
     >
+      <Icon
+        className={`size-5 sm:size-6 shrink-0 ${LEVEL_ICON_COLOR[notice.level]}`}
+        aria-hidden="true"
+      />
       <span className="flex-1">{notice.message}</span>
       <button
         type="button"
@@ -107,7 +130,7 @@ export function NoticeBanner() {
           setDismissed(true);
         }}
         aria-label="Dismiss notice"
-        className="shrink-0 cursor-pointer opacity-70 hover:opacity-100"
+        className="shrink-0 cursor-pointer text-lg leading-none opacity-70 hover:opacity-100"
       >
         ✕
       </button>

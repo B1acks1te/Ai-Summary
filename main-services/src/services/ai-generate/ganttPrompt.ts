@@ -8,9 +8,10 @@ CRITICAL RULES:
 - Extract each warning/watch as a separate bar entry.
 - Use NZ local time (NZST UTC+12 or NZDT UTC+13 as appropriate for the date).
 - The current year is 2026 unless the data explicitly states otherwise.
-- Determine hazard_type: "rain", "wind", "snow", or "road_snow".
+- Determine hazard_type: "rain", "wind", "snow", "road_snow", or "thunderstorm".
   - Heavy Snow Watch and Heavy Snow Warning (regional alerts) map to hazard_type "snow".
   - Road Snowfall Warning (route-specific alert) maps to hazard_type "road_snow" — a DIFFERENT value, not "snow". This is a structural distinction, not just a label wording choice.
+  - Severe Thunderstorm Watch and Severe Thunderstorm Warning map to hazard_type "thunderstorm" — NEVER "rain". A thunderstorm alert is a structurally different hazard from a rain alert even though both involve precipitation; falling back to "rain" for a thunderstorm alert is a mapping error, not an acceptable approximation.
 - Determine severity: "red_warning", "orange_warning", "warning", or "watch".
   - Use "red_warning" / "orange_warning" ONLY when the source text explicitly states that colour (e.g. "Strong Wind Warning - Orange", "- Red").
   - Use plain "warning" when the source says "Warning" but states NO colour (e.g. "Road Snowfall Warning", or "Heavy Snow Warning" with no "- Orange"/"- Red" suffix). NEVER invent a colour that isn't in the source text.
@@ -39,6 +40,12 @@ WORKED EXAMPLES — the two snow alert types side by side:
 - "Heavy Snow Warning - Orange \n Area: Southern Alps and the Lewis Pass" → 2 bars, hazard_type "snow", severity "orange_warning", labels "Southern Alps (orange snow warning)" and "Lewis Pass (orange snow warning)"
 - "Heavy Snow Watch \n Area: Central Otago" → 1 bar, hazard_type "snow", severity "watch", label "Central Otago (snow watch)"
 - "Road Snowfall Warning \n Area: Milford Road (SH94)" → 1 bar, hazard_type "road_snow" (NOT "snow"), severity "warning", label "Milford Road (road snowfall warning)"
+
+THUNDERSTORM ALERT TYPE:
+- "Severe Thunderstorm Watch" / "Severe Thunderstorm Warning" is its own hazard_type, "thunderstorm" — it is NOT a rain alert and must never be mapped to hazard_type "rain", even though it is a precipitation-related hazard. Treat it as a standard REGIONAL alert: it follows the same "Area:" field, AREA SPLITTING rules, and severity rules (red_warning/orange_warning/warning/watch, using whatever colour the source text states, or plain "warning"/"watch" when none is stated) as Heavy Rain/Strong Wind.
+- LABEL WORDING — thunderstorm is a deliberate exception to the normal colour-in-label rule: the label NEVER includes a colour word, regardless of severity. Use exactly "severe thunderstorm warning" or "severe thunderstorm watch" — matching MetService's own official alert name, which has no colour variant. Do NOT write "red severe thunderstorm warning" or "orange severe thunderstorm warning" even if the bar's severity is red_warning/orange_warning; the colour still drives the bar's rendered colour, just not its label text.
+  - "Severe Thunderstorm Warning \n Area: Hastings, Napier City" → 2 bars, hazard_type "thunderstorm", labels "Hastings (severe thunderstorm warning)" and "Napier City (severe thunderstorm warning)"
+  - "Severe Thunderstorm Watch \n Area: Waikato" → 1 bar, hazard_type "thunderstorm", severity "watch", label "Waikato (severe thunderstorm watch)"
 
 AREA SPLITTING — MANDATORY:
 When an "Area:" field lists MULTIPLE distinct geographic areas separated by commas or "and", you MUST create a SEPARATE bar for EACH area. They all share the same Period, severity, and hazard_type.
@@ -100,7 +107,7 @@ GEOGRAPHIC ORDERING (north to south):
 Northland, Great Barrier Island, Auckland, Coromandel Peninsula, Waikato, Bay of Plenty, Taupo, Taumarunui, Gisborne, Hawke's Bay, Taranaki, Taranaki Maunga, Taihape, Whanganui, Manawatu, Horowhenua, Kapiti Coast, Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman, Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura, Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart Island.
 - Regions not in list: place by approximate geography.
 - Same region grouped together if multiple hazard types.
-- LATITUDE: for EVERY bar also output \"latitude\" — the approximate latitude in decimal degrees of the centre of that bar's location, NEGATIVE because NZ is in the southern hemisphere (2 decimal places). Examples: Auckland -36.85, Hawke's Bay -39.60, Wellington -41.29, Lewis Pass -42.38, Arthur's Pass -42.94, Lindis Pass -44.60, Crown Range Road -44.90, Dunedin -45.87, Stewart Island -47.00. For a road or pass use the midpoint of the named road. This is used to place locations that are NOT in the list above, so be as accurate as you can.
+- LATITUDE: for EVERY bar also output "latitude" — the approximate latitude in decimal degrees of the centre of that bar's location, NEGATIVE because NZ is in the southern hemisphere (2 decimal places). Examples: Auckland -36.85, Hawke's Bay -39.60, Wellington -41.29, Lewis Pass -42.38, Arthur's Pass -42.94, Lindis Pass -44.60, Crown Range Road -44.90, Dunedin -45.87, Stewart Island -47.00. For a road or pass use the midpoint of the named road. This is used to place locations that are NOT in the list above, so be as accurate as you can.
 - SEVERITY SORT WITHIN A REGION GROUP — MANDATORY: when a region has more than one bar (multiple hazard types and/or severities), sort them red_warning > orange_warning > warning > watch, then rain before wind before snow before road_snow if severity ties. Warnings ALWAYS come before watches for the same region, with NO exceptions — this applies regardless of which hazard type (rain/wind/snow/road_snow) each bar is, and regardless of the order the source text mentions them in.
 
 WORKED EXAMPLE — mixed severity within one region:
@@ -117,7 +124,7 @@ Do NOT preserve source-text mention order within a region group — always re-so
 
 LABEL FORMAT: "RegionName (severity hazardtype)" — the region name keeps its normal capitalisation (it's a proper noun), but the "(severity hazardtype)" portion is ALWAYS entirely lowercase, matching how the AI Summary panel writes warning/watch names.
 Examples: "Northland (red rain warning)", "Auckland (orange rain warning)", "Auckland (rain watch)", "Bay of Plenty (wind watch)", "Milford Road (road snowfall warning)", "Southland (snow watch)"
-Note: when severity is plain "warning" (no colour), the label omits the colour word — write "(road snowfall warning)", NOT "(orange road snowfall warning)" or "(red road snowfall warning)", unless the source actually stated that colour. For "Road Snowfall Warning" specifically, use the words "road snowfall" (not "snow") in the label; for "Heavy Snow Watch"/"Heavy Snow Warning" use "snow".
+Note: when severity is plain "warning" (no colour), the label omits the colour word — write "(road snowfall warning)", NOT "(orange road snowfall warning)" or "(red road snowfall warning)", unless the source actually stated that colour. For "Road Snowfall Warning" specifically, use the words "road snowfall" (not "snow") in the label; for "Heavy Snow Watch"/"Heavy Snow Warning" use "snow". For "Severe Thunderstorm Watch"/"Severe Thunderstorm Warning" use the words "severe thunderstorm" and NEVER prefix a colour word, even when severity is red_warning or orange_warning — write "(severe thunderstorm warning)", not "(red severe thunderstorm warning)".
 
 VALIDATION CHECKLIST — run before outputting:
 1. Every bar's start/end dates match day names in source.
@@ -129,10 +136,11 @@ VALIDATION CHECKLIST — run before outputting:
 7. PEAK CHECK: peak fields exist ONLY where explicit peak timing is described.
 8. NAME CHECK: region names faithfully match source, including road/route names (never substituted with an enclosing region).
 9. COLOUR CHECK: severity is "warning" (not "orange_warning"/"red_warning") whenever the source states "Warning" with no explicit colour word — never invent a colour.
-10. HAZARD CHECK: Heavy Snow Watch/Warning entries use hazard_type "snow"; Road Snowfall Warning entries use hazard_type "road_snow" — never "rain", and never mix these two up.
+10. HAZARD CHECK: Heavy Snow Watch/Warning entries use hazard_type "snow"; Road Snowfall Warning entries use hazard_type "road_snow"; Severe Thunderstorm Watch/Warning entries use hazard_type "thunderstorm" — never "rain" for any of these, and never mix them up.
 11. CASE CHECK: every label's "(severity hazardtype)" portion is fully lowercase.
 12. SNOW TYPE CHECK: Road Snowfall Warning uses hazard_type "road_snow" and "road snowfall" wording (e.g. "Milford Road (road snowfall warning)") with severity "warning" (never a colour); Heavy Snow Watch/Warning uses hazard_type "snow" and "snow" wording (e.g. "Southland (snow watch)") and follows normal regional colour rules — the two are never conflated in either field.
-13. LATITUDE CHECK: every bar has a numeric \"latitude\" (negative, roughly between -47.5 and -34) that matches where its location really is.
+13. LATITUDE CHECK: every bar has a numeric "latitude" (negative, roughly between -47.5 and -34) that matches where its location really is.
+14. THUNDERSTORM CHECK: every Severe Thunderstorm Watch/Warning entry uses hazard_type "thunderstorm" (never "rain"), its label uses the words "severe thunderstorm", and that label NEVER includes a colour word (no "red"/"orange") even when the bar's severity is red_warning or orange_warning.
 
 OUTPUT: Use the supplied tool exactly once with the structured arguments. Do not narrate or explain.
 peak_start and peak_end are optional fields — include ONLY when justified per peak intensity rules. The chart_title format is "Weather Warnings and Watches - DD Month YYYY".`;

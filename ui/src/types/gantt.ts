@@ -1,4 +1,9 @@
-export type GanttHazardType = 'rain' | 'wind' | 'snow' | 'road_snow';
+export type GanttHazardType =
+  | 'rain'
+  | 'wind'
+  | 'snow'
+  | 'road_snow'
+  | 'thunderstorm';
 export type GanttSeverity =
   | 'red_warning'
   | 'orange_warning'

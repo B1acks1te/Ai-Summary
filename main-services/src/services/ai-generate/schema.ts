@@ -62,7 +62,13 @@ export type ThunderstormAISummary = z.infer<typeof ThunderstormAISummarySchema>;
 // ------------------------------------------------------------
 // Gantt — used by the new gantt feature
 // ------------------------------------------------------------
-export const GanttHazardTypeEnum = z.enum(['rain', 'wind', 'snow', 'road_snow']);
+export const GanttHazardTypeEnum = z.enum([
+  'rain',
+  'wind',
+  'snow',
+  'road_snow',
+  'thunderstorm',
+]);
 export const GanttSeverityEnum = z.enum([
   'red_warning',
   'orange_warning',

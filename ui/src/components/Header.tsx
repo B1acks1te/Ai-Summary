@@ -16,6 +16,11 @@ function DevBanner() {
 export default function Header() {
   return (
     <div className="flex flex-col">
+      {/* The site notice sits above everything else, including the dev
+          banner — it's the highest-priority thing on the page (an outage,
+          a scheduled maintenance window) and shouldn't be buried under the
+          title bar. */}
+      <NoticeBanner />
       {SHOW_DEV_BANNER && <DevBanner />}
       <div className="flex items-center min-h-14 sm:min-h-18 font-bold">
         <div className="flex-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-base sm:text-xl lg:text-2xl bg-[#0065B3] h-full text-white px-3 sm:px-4 py-2">
@@ -44,7 +49,6 @@ export default function Header() {
           </nav>
         </div>
       </div>
-      <NoticeBanner />
     </div>
   );
 }

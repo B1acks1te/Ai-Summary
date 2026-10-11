@@ -9,11 +9,26 @@ import type { GanttChart, GanttBar } from '@/types/gantt';
 // invented per hazard type. "warning" (no colour stated in source, e.g. a
 // Road Snowfall Warning) renders identically to "orange_warning" — see the
 // severity normalisation in drawGantt below. Hazard type is instead signalled
-// by border style: rain/wind keep a solid border; snow and road_snow use a
-// dashed border. road_snow's dash is always blue regardless of severity, so
+// by border style: rain/wind/thunderstorm keep a solid border; snow and
+// road_snow use a dashed border. road_snow's dash is always blue regardless
+// of severity, so
 // it carries a fixed "this is route-specific" signature independent of colour.
 const STYLES = {
   rain: {
+    red_warning: { fill: '#b91c1c', border: '#7f1d1d', textColor: '#ffffff' },
+    orange_warning: {
+      fill: '#d97706',
+      border: '#92400e',
+      textColor: '#ffffff',
+    },
+    watch: { fill: '#facc15', border: '#ca8a04', textColor: '#000000' },
+  },
+  // Severe thunderstorm alerts are a standard regional alert, styled
+  // identically to rain (same fill/border by severity) with a solid border —
+  // it is not route-specific (road_snow) or a snow type, so it gets no
+  // dashed-border treatment. "Be red like the red rain warnings" just means
+  // it uses rain's exact colour-by-severity convention.
+  thunderstorm: {
     red_warning: { fill: '#b91c1c', border: '#7f1d1d', textColor: '#ffffff' },
     orange_warning: {
       fill: '#d97706',
@@ -292,7 +307,8 @@ function getKnownRegionIndex(regionName: string): number | null {
   for (let i = 0; i < NORMALISED_ORDER.length; i++) {
     if (
       name.includes(NORMALISED_ORDER[i]) &&
-      (best === null || NORMALISED_ORDER[i].length > NORMALISED_ORDER[best].length)
+      (best === null ||
+        NORMALISED_ORDER[i].length > NORMALISED_ORDER[best].length)
     ) {
       best = i;
     }
@@ -365,9 +381,10 @@ const SEVERITY_ORDER: Record<string, number> = {
 
 const HAZARD_ORDER: Record<string, number> = {
   rain: 0,
-  wind: 1,
-  snow: 2,
-  road_snow: 3,
+  thunderstorm: 1,
+  wind: 2,
+  snow: 3,
+  road_snow: 4,
 };
 
 export function sortBarsGeographically(bars: GanttBar[]): GanttBar[] {
@@ -613,8 +630,9 @@ function drawGantt(
     const styleSeverity =
       bar.severity === 'warning' ? 'orange_warning' : bar.severity;
     const style =
-      STYLES[bar.hazard_type]?.[styleSeverity as keyof (typeof STYLES)['rain']] ||
-      STYLES.rain.watch;
+      STYLES[bar.hazard_type]?.[
+        styleSeverity as keyof (typeof STYLES)['rain']
+      ] || STYLES.rain.watch;
 
     ctx.fillStyle = style.fill;
     ctx.fillRect(x1, y, w, barHeight);
