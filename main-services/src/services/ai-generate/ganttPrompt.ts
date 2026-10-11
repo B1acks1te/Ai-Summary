@@ -17,10 +17,13 @@ CRITICAL RULES:
   - Use plain "warning" when the source says "Warning" but states NO colour (e.g. "Road Snowfall Warning", or "Heavy Snow Warning" with no "- Orange"/"- Red" suffix). NEVER invent a colour that isn't in the source text.
   - Use "watch" for any "... Watch" entry.
 - Parse start/end times precisely from the "Period:" or "from X to Y" fields. Use ISO 8601 WITHOUT timezone suffix: YYYY-MM-DDTHH:MM (the renderer treats all times as NZ local).
-- CRITICAL DATE HANDLING:
-  - Pay close attention to day names (Sun, Mon, Tue, etc.) and map them to correct calendar dates.
-  - If the data says "from 10:00pm Sun to 11:00pm Mon" and the context date is Sunday 19 April, then start = 2026-04-19T22:00 and end = 2026-04-20T23:00.
-  - If the data says "from 11:00am Mon to 6:00pm Tue" then start = 2026-04-20T11:00 and end = 2026-04-21T18:00.
+- CRITICAL DATE HANDLING — start_day / end_day are the fields that actually control which calendar date a bar lands on. A SEPARATE deterministic step recomputes every bar's real date from these two fields (plus the document's one "Issued:" date) — your own start/end calendar-date guess is used ONLY as a fallback for the rare case with no "Issued:" line, and your start/end TIME-OF-DAY (the HH:MM) is always taken from what you write there. Given that, here's exactly what each field needs:
+  - start_day / end_day (REQUIRED on every bar): the day-of-week abbreviation exactly as named for the start and end of this bar's "Period:" — e.g. "Period: 33hrs from 6:00am Thu to 3:00pm Fri" → start_day: "Thu", end_day: "Fri". This is a COPY task, not a calculation: read the day name the source already wrote next to the start time and next to the end time, and normalise it to one of Sun/Mon/Tue/Wed/Thu/Fri/Sat. Do not compute, offset, or reason about what calendar date it "should" be — just copy the word.
+  - peak_start_day / peak_end_day: same copy task, for the day name attached to a peak-intensity window, whenever you include peak_start/peak_end (see PEAK INTENSITY below). Omit if you're omitting peak_start/peak_end.
+  - start / end (still required, as a full ISO datetime): still do your best to compute the full date as before — it's the fallback when no "Issued:" anchor exists — but the piece that actually matters for correctness is getting the HH:MM time right; getting the DATE portion slightly wrong here is recoverable (start_day/end_day fixes it) as long as the day name you copied into start_day/end_day is correct.
+  - Still find the "Issued:" line (e.g. "Issued: 9:41am Tue 24 March") and use it as your reference for the start/end fallback date, the same way as before: build a day-name → calendar-date lookup from that one anchor and reuse it for every bar, rather than advancing forward from wherever the previous entry left off (the most common way these dates used to drift a day off).
+  - If the data says "from 10:00pm Sun to 11:00pm Mon" and the context date is Sunday 19 April: start_day "Sun", end_day "Mon", start = 2026-04-19T22:00, end = 2026-04-20T23:00.
+  - If the data says "from 11:00am Mon to 6:00pm Tue": start_day "Mon", end_day "Tue", start = 2026-04-20T11:00, end = 2026-04-21T18:00.
   - NEVER add extra days. The end date must exactly match the period described.
   - Double-check: count the hours between start and end — it should match any "Xhrs" duration stated in the data.
 - Time inference for qualitative descriptions:
@@ -99,9 +102,9 @@ DO NOT include peak_start/peak_end when:
 
 THE TEST: Can you point to words that say WHEN the peak OCCURS? If no → omit peak fields.
 
-When peak timing IS present, map to times:
-- "this morning and early afternoon" on Mon 20 April → peak_start: "2026-04-20T06:00", peak_end: "2026-04-20T15:00"
-- "overnight Monday" → peak_start: "2026-04-21T00:00", peak_end: "2026-04-21T06:00"
+When peak timing IS present, also set peak_start_day/peak_end_day (same day-abbreviation copy task as start_day/end_day — see CRITICAL DATE HANDLING). One wrinkle: "overnight X" means the 00:00–06:00 window on the day AFTER the named day, so peak_start_day/peak_end_day are both the day name FOLLOWING the one stated, not the one written:
+- "this morning and early afternoon" on Mon 20 April → peak_start_day "Mon", peak_end_day "Mon", peak_start: "2026-04-20T06:00", peak_end: "2026-04-20T15:00"
+- "overnight Monday" → peak_start_day "Tue", peak_end_day "Tue" (the night that starts Monday runs into Tuesday morning), peak_start: "2026-04-21T00:00", peak_end: "2026-04-21T06:00"
 
 GEOGRAPHIC ORDERING (north to south):
 Northland, Great Barrier Island, Auckland, Coromandel Peninsula, Waikato, Bay of Plenty, Taupo, Taumarunui, Gisborne, Hawke's Bay, Taranaki, Taranaki Maunga, Taihape, Whanganui, Manawatu, Horowhenua, Kapiti Coast, Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman, Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura, Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart Island.
@@ -127,7 +130,7 @@ Examples: "Northland (red rain warning)", "Auckland (orange rain warning)", "Auc
 Note: when severity is plain "warning" (no colour), the label omits the colour word — write "(road snowfall warning)", NOT "(orange road snowfall warning)" or "(red road snowfall warning)", unless the source actually stated that colour. For "Road Snowfall Warning" specifically, use the words "road snowfall" (not "snow") in the label; for "Heavy Snow Watch"/"Heavy Snow Warning" use "snow". For "Severe Thunderstorm Watch"/"Severe Thunderstorm Warning" use the words "severe thunderstorm" and NEVER prefix a colour word, even when severity is red_warning or orange_warning — write "(severe thunderstorm warning)", not "(red severe thunderstorm warning)".
 
 VALIDATION CHECKLIST — run before outputting:
-1. Every bar's start/end dates match day names in source.
+1. Every bar has start_day/end_day set to the day name EXACTLY as written next to the start/end time in the source's "Period:" field (a copy, not a calculation) — this is what actually controls the bar's date, more than your own start/end date guess.
 2. Duration matches any stated "Xhrs" period.
 3. No bar extends beyond dates mentioned in source.
 4. Bars ordered strictly north to south.
@@ -141,6 +144,8 @@ VALIDATION CHECKLIST — run before outputting:
 12. SNOW TYPE CHECK: Road Snowfall Warning uses hazard_type "road_snow" and "road snowfall" wording (e.g. "Milford Road (road snowfall warning)") with severity "warning" (never a colour); Heavy Snow Watch/Warning uses hazard_type "snow" and "snow" wording (e.g. "Southland (snow watch)") and follows normal regional colour rules — the two are never conflated in either field.
 13. LATITUDE CHECK: every bar has a numeric "latitude" (negative, roughly between -47.5 and -34) that matches where its location really is.
 14. THUNDERSTORM CHECK: every Severe Thunderstorm Watch/Warning entry uses hazard_type "thunderstorm" (never "rain"), its label uses the words "severe thunderstorm", and that label NEVER includes a colour word (no "red"/"orange") even when the bar's severity is red_warning or orange_warning.
+15. DATE ANCHOR CHECK (fallback start/end only): when you compute the fallback start/end calendar date, resolve it against the SAME single "Issued:" anchor date found in the source — re-derive each one from that anchor, not from another bar's already-resolved date or by drifting forward through the document. An entry near the end of the source must land on the exact same calendar date for "Thu" (etc.) as an entry near the start.
+16. PEAK DAY CHECK: whenever peak_start/peak_end are included, peak_start_day/peak_end_day are also set — remembering the "overnight X" wrinkle (peak day is the day AFTER the one named, see PEAK INTENSITY).
 
 OUTPUT: Use the supplied tool exactly once with the structured arguments. Do not narrate or explain.
 peak_start and peak_end are optional fields — include ONLY when justified per peak intensity rules. The chart_title format is "Weather Warnings and Watches - DD Month YYYY".`;

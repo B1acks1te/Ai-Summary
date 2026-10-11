@@ -5,8 +5,14 @@ import { DateTime } from 'luxon';
 import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { NHISCHANNEL_EVENTS } from 'src/events';
 import { z } from 'zod';
+import {
+  parseIssuedAnchorDate,
+  resolveBarPeriod,
+  resolvePeakPeriod,
+} from './dateAnchor';
 import { createGanttUserPrompt, ganttSystemPrompt } from './ganttPrompt';
 import {
+  GanttBar,
   GanttChart,
   GanttChartSchema,
   SevereWeatherAISummarySchema,
@@ -200,10 +206,81 @@ export class AiGenerateService {
       throw new Error('Anthropic returned no structured Gantt output');
     }
 
+    // The AI's own start/end dates are extraction output, not trusted
+    // calendar arithmetic (see dateAnchor.ts) — every bar's actual DATE is
+    // recomputed here from its start_day/end_day plus the source's single
+    // "Issued:" anchor date, keeping only the AI's HH:MM time-of-day.
+    const anchorDate = parseIssuedAnchorDate(input);
+    if (!anchorDate) {
+      this.logger.warn(
+        'generateGanttChart: no "Issued:" line found in input — skipping deterministic date correction and trusting the AI\'s own start/end dates as-is.',
+      );
+    }
+
+    const bars: GanttBar[] = parsed.bars.map((bar) => {
+      if (!anchorDate) {
+        // No anchor to correct against — fall back to the AI's own
+        // best-effort start/end, just dropping the extraction-only
+        // day-name fields that the public GanttBar type doesn't carry.
+        return {
+          region: bar.region,
+          hazard_type: bar.hazard_type,
+          severity: bar.severity,
+          label: bar.label,
+          start: bar.start,
+          end: bar.end,
+          peak_start: bar.peak_start,
+          peak_end: bar.peak_end,
+          latitude: bar.latitude,
+        };
+      }
+
+      const { start, end, startDate } = resolveBarPeriod(
+        anchorDate,
+        bar.start_day,
+        bar.start,
+        bar.end_day,
+        bar.end,
+      );
+
+      let peak_start = bar.peak_start;
+      let peak_end = bar.peak_end;
+      if (
+        bar.peak_start &&
+        bar.peak_end &&
+        bar.peak_start_day &&
+        bar.peak_end_day
+      ) {
+        const peakResolved = resolvePeakPeriod(
+          startDate,
+          bar.peak_start_day,
+          bar.peak_start,
+          bar.peak_end_day,
+          bar.peak_end,
+        );
+        peak_start = peakResolved.peak_start;
+        peak_end = peakResolved.peak_end;
+      }
+
+      return {
+        region: bar.region,
+        hazard_type: bar.hazard_type,
+        severity: bar.severity,
+        label: bar.label,
+        start,
+        end,
+        peak_start,
+        peak_end,
+        latitude: bar.latitude,
+      };
+    });
+
+    const chart: GanttChart = { ...parsed, bars };
+
     this.logger.log(
-      `Gantt chart generated: ${parsed.bars.length} bars, title="${parsed.chart_title}"`,
+      `Gantt chart generated: ${chart.bars.length} bars, title="${chart.chart_title}"`,
     );
-    return parsed;
+    return chart;
   }
 
   // ============================================================
