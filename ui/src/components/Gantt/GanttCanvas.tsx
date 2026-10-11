@@ -427,10 +427,7 @@ function legendLabelFor(
   return `${base} Warning - ORANGE`;
 }
 
-function buildLegendEntries(
-  bars: GanttBar[],
-  hasPeakBand: boolean,
-): LegendEntry[] {
+function buildLegendEntries(bars: GanttBar[]): LegendEntry[] {
   const entries: LegendEntry[] = [];
   const seen = new Set<string>();
   const hazardOrder = ['rain', 'thunderstorm', 'wind', 'snow', 'road_snow'];
@@ -483,14 +480,8 @@ function buildLegendEntries(
     });
   });
 
-  if (hasPeakBand) {
-    entries.push({
-      label: 'Peak Rain Intensity Period',
-      fill: STYLES.peak.fill,
-      border: STYLES.peak.fill,
-    });
-  }
-
+  // Peak rainfall is shown as a band over the chart, not a legend swatch —
+  // its own on-chart label already says what it is.
   return entries;
 }
 
@@ -608,6 +599,29 @@ function computeDaySegments(minTime: number, maxTime: number): DaySegment[] {
     dayStart = dayEnd;
   }
   return segments;
+}
+
+// Formatted by hand (not toLocaleDateString) so the output is always "Wed
+// 25 Mar" — no comma after the weekday, and no dependence on locale data.
+const DAY_LABEL_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABEL_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function formatDayLabel(ts: number): string {
+  const d = new Date(ts);
+  return `${DAY_LABEL_WEEKDAYS[d.getDay()]} ${d.getDate()} ${DAY_LABEL_MONTHS[d.getMonth()]}`;
 }
 
 export function sortBarsGeographically(bars: GanttBar[]): GanttBar[] {
@@ -752,7 +766,12 @@ function computeLayout(
   const marginLeft = 28;
   const marginRight = 28;
   const marginTop = 8 + peakLabelReserve;
-  const marginBottom = 32 + (options.showDayLabels ? 18 : 0);
+  // Day-label row height is always reserved, whether or not the day labels
+  // are actually drawn — so the 00:00 markers have a fixed, stable place to
+  // extend down to (see dayLabelBottomY below) and toggling the day-label
+  // option on/off doesn't shift the chart's overall height.
+  const dayLabelRowHeight = 18;
+  const marginBottom = 32 + dayLabelRowHeight;
   const barHeight = 22;
   const barGap = 3;
   const peakBarHeight = 10;
@@ -764,6 +783,9 @@ function computeLayout(
   const chartAreaHeight = barsParsed.length * (barHeight + barGap);
   const axisY = plotTop + chartAreaHeight + 6;
   const totalHeight = axisY + marginBottom;
+  // Bottom of the day-label row (or where it would sit if hidden) — the
+  // 00:00 markers always extend down to here, regardless of the toggle.
+  const dayLabelBottomY = axisY + dayLabelRowHeight + 12;
 
   return {
     plotLeft,
@@ -780,6 +802,7 @@ function computeLayout(
     tickTimes,
     midnights,
     daySegments,
+    dayLabelBottomY,
     peakBand,
     peakLabelReserve,
     barsParsed,
@@ -825,28 +848,6 @@ function drawGantt(
     return plotLeft + ((ts - minTime) / timeSpan) * plotWidth;
   };
 
-  // Peak rainfall band — drawn first (behind the gridlines/bars) so bars
-  // stay fully opaque and legible; the band only shows through in the
-  // whitespace around them, plus the reserved label strip above the chart.
-  if (options.showPeakRainfall && peakBand) {
-    const bx1 = timeToX(peakBand.start);
-    const bx2 = timeToX(peakBand.end);
-    const bandTop = plotTop - peakLabelReserve + 4;
-    const bandBottom = plotTop + layout.chartAreaHeight;
-    ctx.fillStyle = 'rgba(192, 132, 252, 0.22)';
-    ctx.fillRect(bx1, bandTop, Math.max(bx2 - bx1, 2), bandBottom - bandTop);
-
-    ctx.fillStyle = '#581c87';
-    ctx.font = `bold 11px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    const cx = (bx1 + bx2) / 2;
-    const regionsLabel =
-      peakBand.regions.length > 1 ? 'Multiple Regions' : peakBand.regions[0];
-    ctx.fillText('Peak Rainfall Intensity Period -', cx, bandTop + 3);
-    ctx.fillText(regionsLabel, cx, bandTop + 16);
-  }
-
   // 3-hour gridlines
   tickTimes.forEach((t) => {
     const x = timeToX(t);
@@ -858,24 +859,6 @@ function drawGantt(
     ctx.lineTo(x, plotTop + layout.chartAreaHeight);
     ctx.stroke();
   });
-
-  // 00:00 markers — a distinct dashed black line at each local midnight,
-  // layered on top of the regular 3-hour gridlines so the day boundary
-  // reads clearly even when it falls on a tick that would otherwise just
-  // look like any other 3-hour gridline.
-  if (options.showMidnightMarkers) {
-    midnights.forEach((t) => {
-      const x = timeToX(t);
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth = 1.25;
-      ctx.setLineDash([5, 3]);
-      ctx.beginPath();
-      ctx.moveTo(x, plotTop);
-      ctx.lineTo(x, axisY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    });
-  }
 
   // axis
   ctx.strokeStyle = '#000000';
@@ -912,10 +895,7 @@ function drawGantt(
     ctx.fillStyle = '#000000';
     daySegments.forEach((seg) => {
       const cx = timeToX((seg.start + seg.end) / 2);
-      const label = new Date((seg.start + seg.end) / 2).toLocaleDateString(
-        'en-NZ',
-        { weekday: 'short', day: 'numeric', month: 'short' },
-      );
+      const label = formatDayLabel((seg.start + seg.end) / 2);
       ctx.fillText(label, cx, axisY + 22);
     });
   }
@@ -982,14 +962,57 @@ function drawGantt(
     }
   });
 
+  // Peak rainfall band — drawn AFTER the bars so it sits on top of all of
+  // them (semi-transparent, so bars stay readable underneath), spanning the
+  // full top-to-bottom height of the gantt (first bar row through the
+  // axis) but only as wide as the peak window itself. The label lives in
+  // the reserved strip above the bars, where it doesn't fight with bar text.
+  if (options.showPeakRainfall && peakBand) {
+    const bx1 = timeToX(peakBand.start);
+    const bx2 = timeToX(peakBand.end);
+    const bandTop = plotTop - peakLabelReserve + 4;
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.28)';
+    ctx.fillRect(bx1, bandTop, Math.max(bx2 - bx1, 2), axisY - bandTop);
+
+    ctx.fillStyle = '#581c87';
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const cx = (bx1 + bx2) / 2;
+    if (peakBand.regions.length > 1) {
+      ctx.fillText('Peak Rainfall Intensity Period', cx, bandTop + 3);
+      ctx.fillText('- Multiple Regions', cx, bandTop + 16);
+    } else {
+      ctx.fillText('Peak Rainfall Intensity Period', cx, bandTop + 9);
+    }
+  }
+
+  // 00:00 markers — drawn AFTER the bars (on top of all of them) as a
+  // distinct dashed black line at each local midnight. They run from the
+  // top of the chart down past the axis to where the day labels sit (or
+  // would sit, if that option is off — see dayLabelBottomY).
+  if (options.showMidnightMarkers) {
+    midnights.forEach((t) => {
+      const x = timeToX(t);
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, plotTop - peakLabelReserve);
+      ctx.lineTo(x, layout.dayLabelBottomY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
   // legend — drawn last so it sits on top of everything else, matching the
-  // reference chart's overlaid box; entries are dynamic (see buildLegendEntries)
+  // reference chart's overlaid box; entries are dynamic (see
+  // buildLegendEntries). Anchored to the bar area (not the reserved peak-
+  // label strip above it) so it never covers the axis, the day labels, or
+  // the peak-band label text.
   if (options.showLegend) {
-    const entries = buildLegendEntries(
-      barsParsed,
-      options.showPeakRainfall && !!peakBand,
-    );
-    drawLegend(ctx, plotRight, plotTop - peakLabelReserve, entries);
+    const entries = buildLegendEntries(barsParsed);
+    drawLegend(ctx, plotRight, plotTop, entries);
   }
 }
 
