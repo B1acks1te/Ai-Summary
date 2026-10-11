@@ -86,6 +86,11 @@ NAMING RULES:
   "Kapiti Coast" stays "Kapiti Coast" (NOT "Kapiti").
   "Milford Road" stays "Milford Road" (NOT "Fiordland" or any other enclosing region name).
 - A road/route name given as the "Area:" (e.g. "Milford Road (SH94)") is its own area — never substitute the wider region it passes through.
+- NAME-MODIFYING WORD vs POSITIONAL QUALIFIER — do not confuse these two:
+  - A word like "inland", "coastal", "upper", "lower", "northern", "southern", "western", or "eastern" placed DIRECTLY in front of a region name (no "of" between them) is part of that region's name and MUST be kept — e.g. "inland Canterbury" is the region "Inland Canterbury", NOT "Canterbury". Do not quietly drop it the way a positional qualifier like "excluding Porirua" or "south of Westport" gets dropped.
+  - A positional qualifier describes where WITHIN a region something is (it always has "of", "excluding", "about", or similar linking it to the region name) — e.g. "Canterbury north of Lake Sumner", "Wellington excluding Porirua". These stay attached inside the parenthetical descriptor, not fused into the region name itself.
+  - Worked example: "Area: Marlborough and inland Canterbury north of Lake Sumner, excluding Marlborough Sounds" → 2 bars: "Marlborough" and "Inland Canterbury (north of Lake Sumner)" — "inland" is fused to "Canterbury" (name-modifying word, kept), "north of Lake Sumner" is a positional qualifier (goes in the descriptor), "excluding Marlborough Sounds" qualifies "Marlborough" only.
+- SAME-DOCUMENT CONSISTENCY — if the same name-modified region (e.g. "inland Canterbury", "coastal Otago") appears in more than one "Area:" entry anywhere in the document, use the IDENTICAL region-name wording for every bar it produces. Never name it "Inland Canterbury" in one bar and plain "Canterbury" in another from the same bulletin — re-check every other bar for the same base region name before finalising labels.
 
 PEAK INTENSITY — STRICT RULES:
 Include peak_start and peak_end ONLY when the forecast text contains EXPLICIT TIMING for when peak rates occur. The presence of a peak RATE (mm/h) alone is NOT sufficient.
@@ -146,6 +151,7 @@ VALIDATION CHECKLIST — run before outputting:
 14. THUNDERSTORM CHECK: every Severe Thunderstorm Watch/Warning entry uses hazard_type "thunderstorm" (never "rain"), its label uses the words "severe thunderstorm", and that label NEVER includes a colour word (no "red"/"orange") even when the bar's severity is red_warning or orange_warning.
 15. DATE ANCHOR CHECK (fallback start/end only): when you compute the fallback start/end calendar date, resolve it against the SAME single "Issued:" anchor date found in the source — re-derive each one from that anchor, not from another bar's already-resolved date or by drifting forward through the document. An entry near the end of the source must land on the exact same calendar date for "Thu" (etc.) as an entry near the start.
 16. PEAK DAY CHECK: whenever peak_start/peak_end are included, peak_start_day/peak_end_day are also set — remembering the "overnight X" wrinkle (peak day is the day AFTER the one named, see PEAK INTENSITY).
+17. NAME-MODIFIER CONSISTENCY CHECK: for every bar whose region has a fused name-modifying word in the source (inland/coastal/upper/lower/northern/southern/western/eastern + region, e.g. "inland Canterbury"), confirm the word was kept in the label, then scan EVERY OTHER bar for the same base region name and confirm they all use identical wording — fix any bar that dropped the modifier while another kept it.
 
 OUTPUT: Use the supplied tool exactly once with the structured arguments. Do not narrate or explain.
 peak_start and peak_end are optional fields — include ONLY when justified per peak intensity rules. The chart_title format is "Weather Warnings and Watches - DD Month YYYY".`;
