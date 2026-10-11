@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Filter, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { Filter, RefreshCw, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { trackEvent } from '@/lib/analytics';
 import { setFeedbackContext } from '@/lib/feedbackContext';
@@ -25,6 +25,7 @@ import {
   downloadGanttPng,
   sortBarsGeographically,
 } from './GanttCanvas';
+import type { LegendPosition } from './GanttCanvas';
 import { GanttBarEditor } from './GanttBarEditor';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
@@ -175,6 +176,16 @@ export function GanttGenerator() {
   // reset whenever a fresh chart/snapshot is loaded (see handleResult).
   const [hasManualEdits, setHasManualEdits] = useState(false);
 
+  // Where the legend currently sits — null means "let GanttCanvas
+  // auto-place it" (its default: whichever corner overlaps the fewest
+  // bars). Set once the legend's been dragged (see GanttCanvas's
+  // onLegendPositionChange), and reset back to null whenever a genuinely
+  // new chart/snapshot loads (see handleResult), since a position dragged
+  // for one set of bars has no reason to still make sense for another.
+  const [legendPosition, setLegendPosition] = useState<LegendPosition | null>(
+    null,
+  );
+
   const toggleSeverity = (hazard: RegionalHazard, key: SeverityFilterKey) => {
     trackEvent('gantt_filter_toggle', { hazard, severity: key });
     setVisibleSeverities((prev) => {
@@ -322,6 +333,7 @@ export function GanttGenerator() {
     setJsonText(JSON.stringify(sorted, null, 2));
     setStatus('success');
     setHasManualEdits(false);
+    setLegendPosition(null);
 
     const warnings: string[] = [];
     sorted.bars.forEach((b) => {
@@ -410,7 +422,7 @@ export function GanttGenerator() {
 
   const onDownload = (dpi: number) => {
     if (!displayChart) return;
-    downloadGanttPng(displayChart, dpi, renderOptions);
+    downloadGanttPng(displayChart, dpi, renderOptions, legendPosition);
     trackEvent('gantt_download', { dpi });
   };
 
@@ -655,6 +667,13 @@ Northwest winds may approach warning criteria.`}
                   <GanttCanvas
                     data={displayChart ?? chart}
                     options={renderOptions}
+                    legendPosition={legendPosition}
+                    onLegendPositionChange={(pos) => {
+                      if (!legendPosition) {
+                        trackEvent('gantt_legend_drag_start');
+                      }
+                      setLegendPosition(pos);
+                    }}
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -664,6 +683,20 @@ Northwest winds may approach warning criteria.`}
                   <Button variant="secondary" onClick={() => onDownload(150)}>
                     Download 150 DPI
                   </Button>
+                  {legendPosition && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        trackEvent('gantt_legend_reset');
+                        setLegendPosition(null);
+                      }}
+                      className="flex items-center gap-1.5 text-gray-500"
+                    >
+                      <RotateCcw size={14} />
+                      Reset legend position
+                    </Button>
+                  )}
 
                   <div className="relative" ref={filterRef}>
                     <Button

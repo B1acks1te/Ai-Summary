@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { GanttChart, GanttBar, GanttRenderOptions } from '@/types/gantt';
 import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
 
@@ -485,28 +486,111 @@ function buildLegendEntries(bars: GanttBar[]): LegendEntry[] {
   return entries;
 }
 
-function drawLegend(
-  ctx: CanvasRenderingContext2D,
-  plotRight: number,
-  plotTop: number,
-  entries: LegendEntry[],
-) {
-  if (entries.length === 0) return;
-  const FONT =
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
-  const swatchSize = 14;
-  const rowHeight = 20;
-  const paddingX = 10;
-  const paddingY = 8;
+// A legend "box" is always expressed in the same layout-space coordinates
+// as everything else drawn on the chart (0..chartWidth, 0..totalHeight) —
+// this is also exactly the coordinate space the canvas element's CSS
+// width/height use, so a pointer event's offset against the canvas maps
+// straight onto it with no extra scaling, which is what makes dragging work.
+export type LegendBox = { x: number; y: number; width: number; height: number };
+export type LegendPosition = { x: number; y: number };
 
-  ctx.font = `12px ${FONT}`;
+const LEGEND_SWATCH_SIZE = 14;
+const LEGEND_ROW_HEIGHT = 20;
+const LEGEND_PADDING_X = 10;
+const LEGEND_PADDING_Y = 8;
+const LEGEND_FONT =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
+
+function measureLegendSize(
+  ctx: CanvasRenderingContext2D,
+  entries: LegendEntry[],
+): { width: number; height: number } {
+  ctx.font = `12px ${LEGEND_FONT}`;
   const maxTextWidth = Math.max(
     ...entries.map((e) => ctx.measureText(e.label).width),
   );
-  const boxWidth = paddingX * 2 + swatchSize + 8 + maxTextWidth;
-  const boxHeight = paddingY * 2 + entries.length * rowHeight;
-  const boxX = plotRight - boxWidth - 4;
-  const boxY = plotTop + 4;
+  return {
+    width: LEGEND_PADDING_X * 2 + LEGEND_SWATCH_SIZE + 8 + maxTextWidth,
+    height: LEGEND_PADDING_Y * 2 + entries.length * LEGEND_ROW_HEIGHT,
+  };
+}
+
+// Where the legend lands: if the person has dragged it (legendOverride is
+// set), honour that — just clamped so it can't be dragged off the chart.
+// Otherwise auto-place it in whichever of the four chart corners overlaps
+// the fewest (ideally zero) bars, since a dragged position always takes
+// priority over the automatic one, and a fresh chart has no override yet.
+function computeLegendBox(
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  timeToX: (t: number | Date) => number,
+  entries: LegendEntry[],
+  legendOverride: LegendPosition | null,
+): LegendBox {
+  const { width, height } = measureLegendSize(ctx, entries);
+  const { plotLeft, plotRight, plotTop, chartAreaHeight, totalHeight } = layout;
+
+  if (legendOverride) {
+    const maxX = Math.max(plotLeft, plotRight - width);
+    const maxY = Math.max(4, totalHeight - height - 4);
+    return {
+      x: Math.min(Math.max(legendOverride.x, 0), maxX),
+      y: Math.min(Math.max(legendOverride.y, 0), maxY),
+      width,
+      height,
+    };
+  }
+
+  const bottomY = Math.max(plotTop + 4, plotTop + chartAreaHeight - height - 4);
+  const candidates: LegendBox[] = [
+    { x: plotRight - width - 4, y: plotTop + 4, width, height }, // top-right
+    { x: plotLeft + 4, y: plotTop + 4, width, height }, // top-left
+    { x: plotRight - width - 4, y: bottomY, width, height }, // bottom-right
+    { x: plotLeft + 4, y: bottomY, width, height }, // bottom-left
+  ];
+
+  const barRects = layout.barsParsed.map((bar, i) => {
+    const y1 = layout.plotTop + i * (layout.barHeight + layout.barGap);
+    return {
+      x1: timeToX(bar.startDate),
+      x2: timeToX(bar.endDate),
+      y1,
+      y2: y1 + layout.barHeight,
+    };
+  });
+
+  const overlapArea = (box: LegendBox): number =>
+    barRects.reduce((total, r) => {
+      const ow = Math.max(
+        0,
+        Math.min(box.x + box.width, r.x2) - Math.max(box.x, r.x1),
+      );
+      const oh = Math.max(
+        0,
+        Math.min(box.y + box.height, r.y2) - Math.max(box.y, r.y1),
+      );
+      return total + ow * oh;
+    }, 0);
+
+  let best = candidates[0];
+  let bestOverlap = overlapArea(best);
+  for (let i = 1; i < candidates.length && bestOverlap > 0; i++) {
+    const overlap = overlapArea(candidates[i]);
+    if (overlap < bestOverlap) {
+      best = candidates[i];
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
+
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  box: LegendBox,
+  entries: LegendEntry[],
+) {
+  if (entries.length === 0) return;
+  const { x: boxX, y: boxY, width: boxWidth, height: boxHeight } = box;
 
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
@@ -516,23 +600,27 @@ function drawLegend(
   ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
   entries.forEach((entry, i) => {
-    const rowY = boxY + paddingY + i * rowHeight;
-    const swatchX = boxX + paddingX;
-    const swatchY = rowY + (rowHeight - swatchSize) / 2;
+    const rowY = boxY + LEGEND_PADDING_Y + i * LEGEND_ROW_HEIGHT;
+    const swatchX = boxX + LEGEND_PADDING_X;
+    const swatchY = rowY + (LEGEND_ROW_HEIGHT - LEGEND_SWATCH_SIZE) / 2;
 
     ctx.fillStyle = entry.fill;
-    ctx.fillRect(swatchX, swatchY, swatchSize, swatchSize);
+    ctx.fillRect(swatchX, swatchY, LEGEND_SWATCH_SIZE, LEGEND_SWATCH_SIZE);
     ctx.strokeStyle = entry.border;
     ctx.lineWidth = 1.5;
     ctx.setLineDash(entry.dashed ? [3, 2] : []);
-    ctx.strokeRect(swatchX, swatchY, swatchSize, swatchSize);
+    ctx.strokeRect(swatchX, swatchY, LEGEND_SWATCH_SIZE, LEGEND_SWATCH_SIZE);
     ctx.setLineDash([]);
 
     ctx.fillStyle = '#000000';
-    ctx.font = `12px ${FONT}`;
+    ctx.font = `12px ${LEGEND_FONT}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(entry.label, swatchX + swatchSize + 8, rowY + rowHeight / 2);
+    ctx.fillText(
+      entry.label,
+      swatchX + LEGEND_SWATCH_SIZE + 8,
+      rowY + LEGEND_ROW_HEIGHT / 2,
+    );
   });
 }
 
@@ -817,7 +905,8 @@ function drawGantt(
   H: number,
   layout: Layout,
   options: GanttRenderOptions,
-) {
+  legendOverride: LegendPosition | null = null,
+): LegendBox | null {
   const {
     plotLeft,
     plotRight,
@@ -1005,15 +1094,26 @@ function drawGantt(
     });
   }
 
-  // legend — drawn last so it sits on top of everything else, matching the
-  // reference chart's overlaid box; entries are dynamic (see
-  // buildLegendEntries). Anchored to the bar area (not the reserved peak-
-  // label strip above it) so it never covers the axis, the day labels, or
-  // the peak-band label text.
+  // legend — drawn last so it sits on top of everything else. Entries are
+  // dynamic (see buildLegendEntries); its box auto-places into whichever
+  // corner overlaps the fewest bars (see computeLegendBox), or honours a
+  // dragged position when legendOverride is set. Returned so the caller
+  // (the React component) can hit-test pointer events against it for drag.
+  let legendBox: LegendBox | null = null;
   if (options.showLegend) {
     const entries = buildLegendEntries(barsParsed);
-    drawLegend(ctx, plotRight, plotTop, entries);
+    if (entries.length > 0) {
+      legendBox = computeLegendBox(
+        ctx,
+        layout,
+        timeToX,
+        entries,
+        legendOverride,
+      );
+      drawLegend(ctx, legendBox, entries);
+    }
   }
+  return legendBox;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1023,6 +1123,7 @@ export function downloadGanttPng(
   data: GanttChart,
   targetDPI: number,
   options: GanttRenderOptions = DEFAULT_GANTT_RENDER_OPTIONS,
+  legendPosition: LegendPosition | null = null,
 ) {
   const scale = targetDPI / 96;
   const chartWidth = 1400;
@@ -1035,7 +1136,10 @@ export function downloadGanttPng(
   const ctx = offscreen.getContext('2d');
   if (!ctx) return;
   ctx.scale(scale, scale);
-  drawGantt(ctx, chartWidth, chartHeight, layout, options);
+  // legendPosition is in the same 1400-wide layout-space coordinates this
+  // function always lays the chart out in, so it carries over directly
+  // regardless of the export DPI — the PNG matches whatever's on screen.
+  drawGantt(ctx, chartWidth, chartHeight, layout, options, legendPosition);
 
   const link = document.createElement('a');
   const title = data.chart_title || 'Hazard_Gantt';
@@ -1052,14 +1156,30 @@ type Props = {
   data: GanttChart;
   width?: number;
   options?: GanttRenderOptions;
+  // Where to draw the legend, in layout-space coordinates (see LegendBox) —
+  // null means "auto-place it, avoiding bars where possible" (the default).
+  // Set after a drag; GanttGenerator is expected to reset this to null
+  // whenever a genuinely new chart is loaded, so a stale dragged position
+  // never gets carried over onto different data.
+  legendPosition?: LegendPosition | null;
+  onLegendPositionChange?: (pos: LegendPosition) => void;
 };
 
 export function GanttCanvas({
   data,
   width = 1400,
   options = DEFAULT_GANTT_RENDER_OPTIONS,
+  legendPosition = null,
+  onLegendPositionChange,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The legend's last-drawn box, in layout-space coordinates — used only to
+  // hit-test pointer events against (is the click on the legend?). Updated
+  // by every draw, so it always matches what's actually on screen.
+  const legendBoxRef = useRef<LegendBox | null>(null);
+  const dragGrabRef = useRef<{ dx: number; dy: number } | null>(null);
+  const [isDraggingLegend, setIsDraggingLegend] = useState(false);
+  const [isHoveringLegend, setIsHoveringLegend] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1077,8 +1197,65 @@ export function GanttCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.scale(DPR, DPR);
-    drawGantt(ctx, width, chartHeight, layout, options);
-  }, [data, width, options]);
+    legendBoxRef.current = drawGantt(
+      ctx,
+      width,
+      chartHeight,
+      layout,
+      options,
+      legendPosition,
+    );
+  }, [data, width, options, legendPosition]);
+
+  // canvas.style.width is always set to exactly `width` (layout units)
+  // above, so a pointer offset in CSS pixels maps onto layout-space
+  // coordinates with one scale factor — no DPR involved, since DPR only
+  // affects the canvas's internal pixel buffer, not its CSS/layout size.
+  const toLayoutPoint = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const scale = rect.width > 0 ? width / rect.width : 1;
+    return {
+      x: (e.clientX - rect.left) * scale,
+      y: (e.clientY - rect.top) * scale,
+    };
+  };
+
+  const isInsideLegend = (x: number, y: number) => {
+    const box = legendBoxRef.current;
+    return (
+      !!box &&
+      x >= box.x &&
+      x <= box.x + box.width &&
+      y >= box.y &&
+      y <= box.y + box.height
+    );
+  };
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const box = legendBoxRef.current;
+    const point = toLayoutPoint(e);
+    if (!box || !isInsideLegend(point.x, point.y)) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragGrabRef.current = { dx: point.x - box.x, dy: point.y - box.y };
+    setIsDraggingLegend(true);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const point = toLayoutPoint(e);
+    if (dragGrabRef.current) {
+      onLegendPositionChange?.({
+        x: point.x - dragGrabRef.current.dx,
+        y: point.y - dragGrabRef.current.dy,
+      });
+    } else {
+      setIsHoveringLegend(isInsideLegend(point.x, point.y));
+    }
+  };
+
+  const endDrag = () => {
+    dragGrabRef.current = null;
+    setIsDraggingLegend(false);
+  };
 
   if (!data || data.bars.length === 0) {
     return (
@@ -1088,5 +1265,23 @@ export function GanttCanvas({
     );
   }
 
-  return <canvas ref={canvasRef} className="rounded border border-gray-200" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="rounded border border-gray-200"
+      style={{
+        cursor: isDraggingLegend
+          ? 'grabbing'
+          : isHoveringLegend
+            ? 'grab'
+            : 'default',
+        touchAction: 'none',
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onPointerLeave={() => setIsHoveringLegend(false)}
+    />
+  );
 }
