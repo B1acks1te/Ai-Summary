@@ -14,6 +14,7 @@ import type {
   ThunderstormOutlook,
 } from '@/types';
 import { createServerFn } from '@tanstack/react-start';
+import { DateTime } from 'luxon';
 import type { Document, WithId } from 'mongodb';
 import { ObjectId } from 'mongodb';
 
@@ -243,6 +244,166 @@ export const adminGetThunderstormOutlookAISummaryById = createServerFn({
       };
     },
   );
+
+// ---------------------------------------------------------------------------
+// Browse by date — an alternative to typing a raw ID (which nobody has
+// memorised) for the same five collections. Pick an NZ calendar day and get
+// back everything inserted/generated that day, each with just enough of a
+// preview to tell entries apart before opening the full JSON.
+// ---------------------------------------------------------------------------
+
+export type DateListItem = { id: string; when: string; preview: string };
+type DateListResponse =
+  | { ok: true; items: DateListItem[] }
+  | { ok: false; error: string };
+
+const MAX_DATE_LIST_RESULTS = 200;
+
+// "2026-10-11" -> that NZ calendar day's [start, end) as UTC instants, so the
+// query is correct across DST changes rather than assuming a fixed +12/+13
+// offset.
+function nzDayBounds(date: string): { start: Date; end: Date } | null {
+  const start = DateTime.fromISO(date, { zone: 'Pacific/Auckland' }).startOf(
+    'day',
+  );
+  if (!start.isValid) return null;
+  return { start: start.toJSDate(), end: start.plus({ days: 1 }).toJSDate() };
+}
+
+export const adminListSevereWeatherOutlookByDate = createServerFn({
+  method: 'POST',
+})
+  .inputValidator((data: { adminKey: string; date: string }) => data)
+  .handler(async ({ data }): Promise<DateListResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+    const bounds = nzDayBounds(data.date);
+    if (!bounds) return { ok: false, error: 'That is not a valid date.' };
+
+    const collection = await getSevereWeatherOutlookCollection();
+    const docs = await collection
+      .find({ insertedAt: { $gte: bounds.start, $lt: bounds.end } })
+      .sort({ insertedAt: -1 })
+      .limit(MAX_DATE_LIST_RESULTS)
+      .toArray();
+    return {
+      ok: true,
+      items: docs.map((d) => ({
+        id: d._id.toString(),
+        when: new Date(d.insertedAt).toISOString(),
+        preview: `Issued: ${d.issuedDate}`,
+      })),
+    };
+  });
+
+export const adminListThunderstormOutlookByDate = createServerFn({
+  method: 'POST',
+})
+  .inputValidator((data: { adminKey: string; date: string }) => data)
+  .handler(async ({ data }): Promise<DateListResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+    const bounds = nzDayBounds(data.date);
+    if (!bounds) return { ok: false, error: 'That is not a valid date.' };
+
+    const collection = await getThunderstormOutlookCollection();
+    const docs = await collection
+      .find({ insertedAt: { $gte: bounds.start, $lt: bounds.end } })
+      .sort({ insertedAt: -1 })
+      .limit(MAX_DATE_LIST_RESULTS)
+      .toArray();
+    return {
+      ok: true,
+      items: docs.map((d) => ({
+        id: d._id.toString(),
+        when: new Date(d.insertedAt).toISOString(),
+        preview: d.refIssuedDates?.length
+          ? `Refs: ${d.refIssuedDates.join(', ')}`
+          : `${d.items.length} item(s)`,
+      })),
+    };
+  });
+
+export const adminListIssuedWarningsAndWatchesByDate = createServerFn({
+  method: 'POST',
+})
+  .inputValidator((data: { adminKey: string; date: string }) => data)
+  .handler(async ({ data }): Promise<DateListResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+    const bounds = nzDayBounds(data.date);
+    if (!bounds) return { ok: false, error: 'That is not a valid date.' };
+
+    const collection = await getIssuedAlertCollection();
+    const docs = await collection
+      .find({ insertedAt: { $gte: bounds.start, $lt: bounds.end } })
+      .sort({ insertedAt: -1 })
+      .limit(MAX_DATE_LIST_RESULTS)
+      .toArray();
+    return {
+      ok: true,
+      items: docs.map((d) => ({
+        id: d._id.toString(),
+        when: new Date(d.insertedAt).toISOString(),
+        preview: `${d.entries.length} alert(s) in force`,
+      })),
+    };
+  });
+
+export const adminListSevereWeatherOutlookAISummaryByDate = createServerFn({
+  method: 'POST',
+})
+  .inputValidator((data: { adminKey: string; date: string }) => data)
+  .handler(async ({ data }): Promise<DateListResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+    const bounds = nzDayBounds(data.date);
+    if (!bounds) return { ok: false, error: 'That is not a valid date.' };
+
+    const collection = await getAISevereWeatherOutlookSummaryCollection();
+    const docs = await collection
+      .find({ generatedAt: { $gte: bounds.start, $lt: bounds.end } })
+      .sort({ generatedAt: -1 })
+      .limit(MAX_DATE_LIST_RESULTS)
+      .toArray();
+    // The summary's own _id isn't what the by-ID lookup takes - it takes the
+    // outlookRefId it was generated from, so that's what's returned here as
+    // `id`, ready to feed straight back into that lookup.
+    return {
+      ok: true,
+      items: docs.map((d) => ({
+        id: d.outlookRefId,
+        when: new Date(d.generatedAt).toISOString(),
+        preview: d.genReason || 'AI summary',
+      })),
+    };
+  });
+
+export const adminListThunderstormOutlookAISummaryByDate = createServerFn({
+  method: 'POST',
+})
+  .inputValidator((data: { adminKey: string; date: string }) => data)
+  .handler(async ({ data }): Promise<DateListResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+    const bounds = nzDayBounds(data.date);
+    if (!bounds) return { ok: false, error: 'That is not a valid date.' };
+
+    const collection = await getAIThunderstormOutlookSummaryCollection();
+    const docs = await collection
+      .find({ generatedAt: { $gte: bounds.start, $lt: bounds.end } })
+      .sort({ generatedAt: -1 })
+      .limit(MAX_DATE_LIST_RESULTS)
+      .toArray();
+    return {
+      ok: true,
+      items: docs.map((d) => ({
+        id: d.outlookRefId,
+        when: new Date(d.generatedAt).toISOString(),
+        preview: d.genReason || 'AI summary',
+      })),
+    };
+  });
 
 async function collectionStat<
   T extends Document & { insertedAt?: Date },
