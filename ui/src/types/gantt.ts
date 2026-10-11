@@ -38,3 +38,22 @@ export type GanttSnapshot = GanttChart & {
   id: string;
   insertedAt: string;
 };
+
+// Display toggles for GanttCanvas (see the "Display options" control on the
+// Gantt page). Each one is independent and purely cosmetic — none of them
+// change the underlying chart data, filtering, or PNG export resolution.
+export type GanttRenderOptions = {
+  showLegend: boolean;
+  showPeakRainfall: boolean;
+  showDayLabels: boolean;
+  showMidnightMarkers: boolean;
+};
+
+// Matches the reference chart supplied by MetService/ops: every display
+// option on by default.
+export const DEFAULT_GANTT_RENDER_OPTIONS: GanttRenderOptions = {
+  showLegend: true,
+  showPeakRainfall: true,
+  showDayLabels: true,
+  showMidnightMarkers: true,
+};

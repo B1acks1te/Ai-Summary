@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Filter, RefreshCw } from 'lucide-react';
+import { Filter, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { toast } from 'sonner';
 import { trackEvent } from '@/lib/analytics';
 import { setFeedbackContext } from '@/lib/feedbackContext';
@@ -13,8 +13,13 @@ import {
   generateGanttFromLatest,
   getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
-import type { GanttChart, GanttSnapshot } from '@/types/gantt';
+import type {
+  GanttChart,
+  GanttSnapshot,
+  GanttRenderOptions,
+} from '@/types/gantt';
 import type { GanttSeverity } from '@/types/gantt';
+import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
@@ -60,6 +65,21 @@ const SEVERITY_FILTER_LABEL: Record<SeverityFilterKey, string> = {
 // choice to minimise it is remembered across refreshes (per browser).
 const HOW_TO_STORAGE_KEY = 'gantt-how-to-open';
 
+// localStorage key for the chart's display toggles (legend, peak rainfall
+// band, day labels, 00:00 markers) — each one is independent and remembered
+// per browser, same pattern as HOW_TO_STORAGE_KEY above.
+const RENDER_OPTIONS_STORAGE_KEY = 'gantt-render-options';
+
+const DISPLAY_OPTION_FIELDS: {
+  key: keyof GanttRenderOptions;
+  label: string;
+}[] = [
+  { key: 'showLegend', label: 'Legend' },
+  { key: 'showPeakRainfall', label: 'Peak rainfall band' },
+  { key: 'showDayLabels', label: 'Day labels' },
+  { key: 'showMidnightMarkers', label: '00:00 markers' },
+];
+
 // A bar's severity is "warning" (uncoloured) when the source didn't state a
 // colour — visually and for filtering purposes this is grouped with orange,
 // same as the render logic in GanttCanvas already treats it.
@@ -102,6 +122,53 @@ export function GanttGenerator() {
     Record<RegionalHazard, Set<SeverityFilterKey>>
   >(defaultVisibleSeverities());
   const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
+
+  // Chart display toggles (legend / peak rainfall band / day labels / 00:00
+  // markers) — purely cosmetic, each independent, remembered per browser.
+  // Read after mount because localStorage doesn't exist during SSR.
+  const [renderOptions, setRenderOptions] = useState<GanttRenderOptions>(
+    DEFAULT_GANTT_RENDER_OPTIONS,
+  );
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(RENDER_OPTIONS_STORAGE_KEY);
+      if (raw) {
+        setRenderOptions((prev) => ({ ...prev, ...JSON.parse(raw) }));
+      }
+    } catch {
+      // storage blocked (e.g. private mode) — just use the defaults
+    }
+  }, []);
+  const toggleRenderOption = (key: keyof GanttRenderOptions) => {
+    trackEvent('gantt_display_option_toggle', { option: key });
+    setRenderOptions((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        window.localStorage.setItem(
+          RENDER_OPTIONS_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      } catch {
+        // storage blocked — the toggle still works, it just isn't remembered
+      }
+      return next;
+    });
+  };
+  const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
+  const displayOptionsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!displayOptionsOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (
+        displayOptionsRef.current &&
+        !displayOptionsRef.current.contains(e.target as Node)
+      ) {
+        setDisplayOptionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [displayOptionsOpen]);
 
   // True once GanttBarEditor has changed the bars currently on screen. Used
   // only to warn before a live refresh would silently throw that away —
@@ -343,7 +410,7 @@ export function GanttGenerator() {
 
   const onDownload = (dpi: number) => {
     if (!displayChart) return;
-    downloadGanttPng(displayChart, dpi);
+    downloadGanttPng(displayChart, dpi, renderOptions);
     trackEvent('gantt_download', { dpi });
   };
 
@@ -585,7 +652,10 @@ Northwest winds may approach warning criteria.`}
             ) : chart ? (
               <>
                 <div className="overflow-x-auto">
-                  <GanttCanvas data={displayChart ?? chart} />
+                  <GanttCanvas
+                    data={displayChart ?? chart}
+                    options={renderOptions}
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={() => onDownload(300)}>
@@ -657,6 +727,52 @@ Northwest winds may approach warning criteria.`}
                           <span />
                           <span />
                         </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative" ref={displayOptionsRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (!displayOptionsOpen) {
+                          trackEvent('gantt_display_options_open');
+                        }
+                        setDisplayOptionsOpen((v) => !v);
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <SlidersHorizontal size={14} />
+                      Display options
+                    </Button>
+
+                    {displayOptionsOpen && (
+                      <div className="absolute bottom-full left-0 z-20 mb-1 w-56 border rounded-lg bg-white shadow-lg p-3 text-xs">
+                        <p className="font-medium mb-2">
+                          Chart elements (on by default)
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {DISPLAY_OPTION_FIELDS.map(({ key, label }) => (
+                            <label
+                              key={key}
+                              className="flex items-center gap-2 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={renderOptions[key]}
+                                onChange={() => toggleRenderOption(key)}
+                                className="h-3.5 w-3.5"
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-gray-400">
+                          Applies to this chart and its PNG export. The peak
+                          rainfall band only appears when a rain bar actually
+                          has a peak window.
+                        </p>
                       </div>
                     )}
                   </div>

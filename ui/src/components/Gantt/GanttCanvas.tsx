@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import type { GanttChart, GanttBar } from '@/types/gantt';
+import type { GanttChart, GanttBar, GanttRenderOptions } from '@/types/gantt';
+import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
 
 // ─────────────────────────────────────────────────────────────
 // COLOUR DEFINITIONS — verbatim from the uploaded reference
@@ -387,6 +388,228 @@ const HAZARD_ORDER: Record<string, number> = {
   road_snow: 4,
 };
 
+// ─────────────────────────────────────────────────────────────
+// LEGEND — built dynamically from whatever hazard/severity combinations
+// are actually present on the chart (plus a "Peak Rain Intensity Period"
+// row when any rain bar has a peak window and the option is on), so it
+// never shows swatches for things that aren't on screen.
+// ─────────────────────────────────────────────────────────────
+type LegendEntry = {
+  label: string;
+  fill: string;
+  border: string;
+  dashed?: boolean;
+};
+
+const LEGEND_HAZARD_BASE: Record<string, string> = {
+  rain: 'Heavy Rain',
+  thunderstorm: 'Severe Thunderstorm',
+  wind: 'Strong Wind',
+  snow: 'Heavy Snow',
+};
+
+function normalizeSeverityKey(
+  severity: GanttBar['severity'],
+): 'red_warning' | 'orange_warning' | 'watch' {
+  if (severity === 'red_warning') return 'red_warning';
+  if (severity === 'watch') return 'watch';
+  return 'orange_warning'; // 'warning' (uncoloured) renders/groups as orange
+}
+
+function legendLabelFor(
+  hazard: string,
+  severity: 'red_warning' | 'orange_warning' | 'watch',
+): string {
+  if (hazard === 'road_snow') return 'Road Snowfall Warning';
+  const base = LEGEND_HAZARD_BASE[hazard] ?? hazard;
+  if (severity === 'watch') return `${base} Watch`;
+  if (severity === 'red_warning') return `${base} Warning - RED`;
+  return `${base} Warning - ORANGE`;
+}
+
+function buildLegendEntries(
+  bars: GanttBar[],
+  hasPeakBand: boolean,
+): LegendEntry[] {
+  const entries: LegendEntry[] = [];
+  const seen = new Set<string>();
+  const hazardOrder = ['rain', 'thunderstorm', 'wind', 'snow', 'road_snow'];
+  const severityOrder: Array<'red_warning' | 'orange_warning' | 'watch'> = [
+    'red_warning',
+    'orange_warning',
+    'watch',
+  ];
+
+  hazardOrder.forEach((hazard) => {
+    const barsOfHazard = bars.filter((b) => b.hazard_type === hazard);
+    if (barsOfHazard.length === 0) return;
+
+    if (hazard === 'road_snow') {
+      // Fill colour follows severity (reuses rain's convention), border is
+      // always fixed blue — one representative swatch is enough, so use
+      // whichever severity is most severe among the road_snow bars present.
+      const present = severityOrder.find((sev) =>
+        barsOfHazard.some((b) => normalizeSeverityKey(b.severity) === sev),
+      );
+      const style =
+        STYLES.road_snow[present ?? 'orange_warning'] ??
+        STYLES.road_snow.orange_warning;
+      entries.push({
+        label: legendLabelFor('road_snow', present ?? 'orange_warning'),
+        fill: style.fill,
+        border: style.border,
+        dashed: true,
+      });
+      return;
+    }
+
+    severityOrder.forEach((sev) => {
+      const present = barsOfHazard.some(
+        (b) => normalizeSeverityKey(b.severity) === sev,
+      );
+      if (!present) return;
+      const key = `${hazard}-${sev}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const style =
+        STYLES[hazard as Exclude<keyof typeof STYLES, 'peak'>]?.[sev];
+      if (!style) return;
+      entries.push({
+        label: legendLabelFor(hazard, sev),
+        fill: style.fill,
+        border: style.border,
+        dashed: 'dashed' in style ? style.dashed : false,
+      });
+    });
+  });
+
+  if (hasPeakBand) {
+    entries.push({
+      label: 'Peak Rain Intensity Period',
+      fill: STYLES.peak.fill,
+      border: STYLES.peak.fill,
+    });
+  }
+
+  return entries;
+}
+
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  plotRight: number,
+  plotTop: number,
+  entries: LegendEntry[],
+) {
+  if (entries.length === 0) return;
+  const FONT =
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
+  const swatchSize = 14;
+  const rowHeight = 20;
+  const paddingX = 10;
+  const paddingY = 8;
+
+  ctx.font = `12px ${FONT}`;
+  const maxTextWidth = Math.max(
+    ...entries.map((e) => ctx.measureText(e.label).width),
+  );
+  const boxWidth = paddingX * 2 + swatchSize + 8 + maxTextWidth;
+  const boxHeight = paddingY * 2 + entries.length * rowHeight;
+  const boxX = plotRight - boxWidth - 4;
+  const boxY = plotTop + 4;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+  entries.forEach((entry, i) => {
+    const rowY = boxY + paddingY + i * rowHeight;
+    const swatchX = boxX + paddingX;
+    const swatchY = rowY + (rowHeight - swatchSize) / 2;
+
+    ctx.fillStyle = entry.fill;
+    ctx.fillRect(swatchX, swatchY, swatchSize, swatchSize);
+    ctx.strokeStyle = entry.border;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(entry.dashed ? [3, 2] : []);
+    ctx.strokeRect(swatchX, swatchY, swatchSize, swatchSize);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#000000';
+    ctx.font = `12px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(entry.label, swatchX + swatchSize + 8, rowY + rowHeight / 2);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// PEAK RAINFALL BAND — a full-height highlight spanning the earliest peak
+// start to the latest peak end across all rain bars with a peak window,
+// labelled across the top of the chart. Only drawn when applicable (i.e.
+// at least one rain bar actually has a peak window).
+// ─────────────────────────────────────────────────────────────
+type PeakBand = { start: number; end: number; regions: string[] } | null;
+
+function computePeakBand(
+  barsParsed: {
+    hazard_type: GanttBar['hazard_type'];
+    region: string;
+    peakStartDate: Date | null;
+    peakEndDate: Date | null;
+  }[],
+): PeakBand {
+  const withPeak = barsParsed.filter(
+    (b) => b.hazard_type === 'rain' && b.peakStartDate && b.peakEndDate,
+  );
+  if (withPeak.length === 0) return null;
+  const start = Math.min(...withPeak.map((b) => b.peakStartDate!.getTime()));
+  const end = Math.max(...withPeak.map((b) => b.peakEndDate!.getTime()));
+  const regions = Array.from(new Set(withPeak.map((b) => b.region)));
+  return { start, end, regions };
+}
+
+// ─────────────────────────────────────────────────────────────
+// DAY LABELS — one label per local calendar day covered by the chart,
+// centred under that day's span on the axis (clipped to the chart's edges
+// for a partial first/last day).
+// ─────────────────────────────────────────────────────────────
+type DaySegment = { start: number; end: number };
+
+function computeDaySegments(minTime: number, maxTime: number): DaySegment[] {
+  const segments: DaySegment[] = [];
+  const first = new Date(minTime);
+  let dayStart = new Date(
+    first.getFullYear(),
+    first.getMonth(),
+    first.getDate(),
+    0,
+    0,
+    0,
+    0,
+  ).getTime();
+  for (let i = 0; i < 31; i++) {
+    const d = new Date(dayStart);
+    const dayEnd = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    ).getTime();
+    const segStart = Math.max(dayStart, minTime);
+    const segEnd = Math.min(dayEnd, maxTime);
+    if (segEnd > segStart) segments.push({ start: segStart, end: segEnd });
+    if (dayEnd >= maxTime) break;
+    dayStart = dayEnd;
+  }
+  return segments;
+}
+
 export function sortBarsGeographically(bars: GanttBar[]): GanttBar[] {
   const tagged = bars.map((b, i) => ({
     bar: b,
@@ -495,7 +718,11 @@ function findMidnights(minTime: number, maxTime: number): number[] {
 
 type Layout = ReturnType<typeof computeLayout>;
 
-function computeLayout(data: GanttChart, chartWidth: number) {
+function computeLayout(
+  data: GanttChart,
+  chartWidth: number,
+  options: GanttRenderOptions,
+) {
   const barsParsed = data.bars.map((b) => ({
     ...b,
     startDate: new Date(b.start),
@@ -512,11 +739,20 @@ function computeLayout(data: GanttChart, chartWidth: number) {
 
   const tickTimes = generate3HTicks(minTime, maxTime);
   const midnights = findMidnights(minTime, maxTime);
+  const daySegments = options.showDayLabels
+    ? computeDaySegments(minTime, maxTime)
+    : [];
+  const peakBand = options.showPeakRainfall
+    ? computePeakBand(barsParsed)
+    : null;
+  // Reserve a row above the chart for the peak-rainfall band's label, only
+  // when there's actually a band to label.
+  const peakLabelReserve = peakBand ? 34 : 0;
 
   const marginLeft = 28;
   const marginRight = 28;
-  const marginTop = 8;
-  const marginBottom = 32;
+  const marginTop = 8 + peakLabelReserve;
+  const marginBottom = 32 + (options.showDayLabels ? 18 : 0);
   const barHeight = 22;
   const barGap = 3;
   const peakBarHeight = 10;
@@ -543,6 +779,9 @@ function computeLayout(data: GanttChart, chartWidth: number) {
     timeSpan,
     tickTimes,
     midnights,
+    daySegments,
+    peakBand,
+    peakLabelReserve,
     barsParsed,
     totalHeight,
     chartAreaHeight,
@@ -554,6 +793,7 @@ function drawGantt(
   W: number,
   H: number,
   layout: Layout,
+  options: GanttRenderOptions,
 ) {
   const {
     plotLeft,
@@ -567,6 +807,10 @@ function drawGantt(
     minTime,
     timeSpan,
     tickTimes,
+    midnights,
+    daySegments,
+    peakBand,
+    peakLabelReserve,
     barsParsed,
   } = layout;
 
@@ -581,16 +825,57 @@ function drawGantt(
     return plotLeft + ((ts - minTime) / timeSpan) * plotWidth;
   };
 
+  // Peak rainfall band — drawn first (behind the gridlines/bars) so bars
+  // stay fully opaque and legible; the band only shows through in the
+  // whitespace around them, plus the reserved label strip above the chart.
+  if (options.showPeakRainfall && peakBand) {
+    const bx1 = timeToX(peakBand.start);
+    const bx2 = timeToX(peakBand.end);
+    const bandTop = plotTop - peakLabelReserve + 4;
+    const bandBottom = plotTop + layout.chartAreaHeight;
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.22)';
+    ctx.fillRect(bx1, bandTop, Math.max(bx2 - bx1, 2), bandBottom - bandTop);
+
+    ctx.fillStyle = '#581c87';
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const cx = (bx1 + bx2) / 2;
+    const regionsLabel =
+      peakBand.regions.length > 1 ? 'Multiple Regions' : peakBand.regions[0];
+    ctx.fillText('Peak Rainfall Intensity Period -', cx, bandTop + 3);
+    ctx.fillText(regionsLabel, cx, bandTop + 16);
+  }
+
   // 3-hour gridlines
   tickTimes.forEach((t) => {
     const x = timeToX(t);
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(x, plotTop);
     ctx.lineTo(x, plotTop + layout.chartAreaHeight);
     ctx.stroke();
   });
+
+  // 00:00 markers — a distinct dashed black line at each local midnight,
+  // layered on top of the regular 3-hour gridlines so the day boundary
+  // reads clearly even when it falls on a tick that would otherwise just
+  // look like any other 3-hour gridline.
+  if (options.showMidnightMarkers) {
+    midnights.forEach((t) => {
+      const x = timeToX(t);
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, plotTop);
+      ctx.lineTo(x, axisY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
 
   // axis
   ctx.strokeStyle = '#000000';
@@ -618,6 +903,23 @@ function drawGantt(
     ctx.fillText(hh + ':' + mm, x, axisY + 8);
   });
 
+  // day labels — one per local calendar day covered, centred under that
+  // day's span (clipped at the chart edges for a partial first/last day)
+  if (options.showDayLabels) {
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#000000';
+    daySegments.forEach((seg) => {
+      const cx = timeToX((seg.start + seg.end) / 2);
+      const label = new Date((seg.start + seg.end) / 2).toLocaleDateString(
+        'en-NZ',
+        { weekday: 'short', day: 'numeric', month: 'short' },
+      );
+      ctx.fillText(label, cx, axisY + 22);
+    });
+  }
+
   // bars
   barsParsed.forEach((bar, i) => {
     const y = plotTop + i * (barHeight + barGap);
@@ -644,7 +946,12 @@ function drawGantt(
     ctx.strokeRect(x1 + bw / 2, y + bw / 2, w - bw, barHeight - bw);
     ctx.setLineDash([]);
 
-    if (bar.hazard_type === 'rain' && bar.peakStartDate && bar.peakEndDate) {
+    if (
+      options.showPeakRainfall &&
+      bar.hazard_type === 'rain' &&
+      bar.peakStartDate &&
+      bar.peakEndDate
+    ) {
       const px1 = Math.max(timeToX(bar.peakStartDate), x1);
       const px2 = Math.min(timeToX(bar.peakEndDate), x1 + w);
       const pw = Math.max(px2 - px1, 2);
@@ -674,15 +981,29 @@ function drawGantt(
       ctx.fillText(label, x1 + pad, y + barHeight / 2);
     }
   });
+
+  // legend — drawn last so it sits on top of everything else, matching the
+  // reference chart's overlaid box; entries are dynamic (see buildLegendEntries)
+  if (options.showLegend) {
+    const entries = buildLegendEntries(
+      barsParsed,
+      options.showPeakRainfall && !!peakBand,
+    );
+    drawLegend(ctx, plotRight, plotTop - peakLabelReserve, entries);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
 // EXPORT — render at arbitrary DPI
 // ─────────────────────────────────────────────────────────────
-export function downloadGanttPng(data: GanttChart, targetDPI: number) {
+export function downloadGanttPng(
+  data: GanttChart,
+  targetDPI: number,
+  options: GanttRenderOptions = DEFAULT_GANTT_RENDER_OPTIONS,
+) {
   const scale = targetDPI / 96;
   const chartWidth = 1400;
-  const layout = computeLayout(data, chartWidth);
+  const layout = computeLayout(data, chartWidth, options);
   const chartHeight = layout.totalHeight;
 
   const offscreen = document.createElement('canvas');
@@ -691,7 +1012,7 @@ export function downloadGanttPng(data: GanttChart, targetDPI: number) {
   const ctx = offscreen.getContext('2d');
   if (!ctx) return;
   ctx.scale(scale, scale);
-  drawGantt(ctx, chartWidth, chartHeight, layout);
+  drawGantt(ctx, chartWidth, chartHeight, layout, options);
 
   const link = document.createElement('a');
   const title = data.chart_title || 'Hazard_Gantt';
@@ -707,9 +1028,14 @@ export function downloadGanttPng(data: GanttChart, targetDPI: number) {
 type Props = {
   data: GanttChart;
   width?: number;
+  options?: GanttRenderOptions;
 };
 
-export function GanttCanvas({ data, width = 1400 }: Props) {
+export function GanttCanvas({
+  data,
+  width = 1400,
+  options = DEFAULT_GANTT_RENDER_OPTIONS,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -717,7 +1043,7 @@ export function GanttCanvas({ data, width = 1400 }: Props) {
     if (!canvas || !data || data.bars.length === 0) return;
 
     const DPR = 2;
-    const layout = computeLayout(data, width);
+    const layout = computeLayout(data, width, options);
     const chartHeight = layout.totalHeight;
 
     canvas.width = width * DPR;
@@ -728,8 +1054,8 @@ export function GanttCanvas({ data, width = 1400 }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.scale(DPR, DPR);
-    drawGantt(ctx, width, chartHeight, layout);
-  }, [data, width]);
+    drawGantt(ctx, width, chartHeight, layout, options);
+  }, [data, width, options]);
 
   if (!data || data.bars.length === 0) {
     return (
