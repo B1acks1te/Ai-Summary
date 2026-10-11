@@ -64,6 +64,10 @@ SPLITTING RULES:
 - DO NOT split on "and" that is part of a single area's description (e.g. "Kaikoura Coast and ranges" is ONE area).
 - Qualifiers like "excluding X", "south of X", "east of X", "close to X" stay attached to their parent area and do NOT cause a merge with a neighbouring distinct area in the same list.
 - Descriptive subordinate clauses ("about and east of Havelock, including the hills north of Spring Creek") are part of ONE area.
+- TWO-NAME "X and Y" WITH NO COMMA — this is the case that most often gets split inconsistently, so apply this test every time: look at the word right after "and".
+  - If it's a generic geographic FEATURE word (ranges, hills, coast, plains, foothills, valley, and similar) rather than a proper place/district name, "and <feature>" is part of ONE area's description — e.g. "Kaikoura Coast and ranges" stays one area.
+  - If it's itself a proper place or district NAME (a town, city, or named district — e.g. "Dunedin", "Clutha", "Porirua"), it is a SEPARATE area, even with no comma before "and" and even if a modifier word like "Coastal" only grammatically sits in front of the first name. Any modifier at the front of the phrase (e.g. "Coastal") applies ONLY to the first named place, not to both.
+  - Worked example: "Area: Coastal Dunedin and Clutha" → 2 bars: "Coastal Dunedin" and "Clutha" — Dunedin and Clutha are each real, distinct districts, so "and" joins two place names here despite the lack of a comma; "Coastal" modifies "Dunedin" only.
 
 WORKED EXAMPLES:
 - "Area: Taihape, Whanganui, and Manawatu" → 3 bars: "Taihape", "Whanganui", "Manawatu"
@@ -86,6 +90,8 @@ NAMING RULES:
   "Kapiti Coast" stays "Kapiti Coast" (NOT "Kapiti").
   "Milford Road" stays "Milford Road" (NOT "Fiordland" or any other enclosing region name).
 - A road/route name given as the "Area:" (e.g. "Milford Road (SH94)") is its own area — never substitute the wider region it passes through.
+- Copy multi-word descriptive phrases in full — do not quietly compress them. "Coastal parts of north Otago" stays "Coastal parts of north Otago" (NOT "Coastal north Otago" or "Coastal North Otago"). Words like "parts of" are not filler to drop; every word in the source's area description is significant and must appear in the label exactly as written (case included — "north" stays lowercase here, it is not the start of a proper noun).
+- Do not drop the severity colour word when the source states one. "Heavy Rain Warning - Orange" over "Area: Coastal parts of north Otago" MUST produce the label "Coastal parts of north Otago (orange rain warning)" — never silently fall back to "(rain warning)" with no colour. Re-check the colour against the heading each entry sits under before finalising every label in that group.
 - NAME-MODIFYING WORD vs POSITIONAL QUALIFIER — do not confuse these two:
   - A word like "inland", "coastal", "upper", "lower", "northern", "southern", "western", or "eastern" placed DIRECTLY in front of a region name (no "of" between them) is part of that region's name and MUST be kept — e.g. "inland Canterbury" is the region "Inland Canterbury", NOT "Canterbury". Do not quietly drop it the way a positional qualifier like "excluding Porirua" or "south of Westport" gets dropped.
   - A positional qualifier describes where WITHIN a region something is (it always has "of", "excluding", "about", or similar linking it to the region name) — e.g. "Canterbury north of Lake Sumner", "Wellington excluding Porirua". These stay attached inside the parenthetical descriptor, not fused into the region name itself.
