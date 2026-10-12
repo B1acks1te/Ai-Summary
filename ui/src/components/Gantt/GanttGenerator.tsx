@@ -1,14 +1,10 @@
-import {
-  Fragment,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { Filter } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Filter, RefreshCw, SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { trackEvent } from '@/lib/analytics';
 import { setFeedbackContext } from '@/lib/feedbackContext';
+import { useNHISChannel } from '@/hooks';
+import { EVENT } from '@/lib/ably';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,25 +13,36 @@ import {
   generateGanttFromLatest,
   getGanttSnapshots,
 } from '@/serverFuncs/Gantt';
-import type { GanttChart, GanttSnapshot } from '@/types/gantt';
+import type {
+  GanttChart,
+  GanttSnapshot,
+  GanttRenderOptions,
+} from '@/types/gantt';
 import type { GanttSeverity } from '@/types/gantt';
+import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
 import {
   GanttCanvas,
   downloadGanttPng,
   sortBarsGeographically,
 } from './GanttCanvas';
+import type { LegendPosition } from './GanttCanvas';
 import { GanttBarEditor } from './GanttBarEditor';
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
-// The three "regional" hazard types share the same watch/orange/red severity
+// The "regional" hazard types share the same watch/orange/red severity
 // scale, so they get one filter row each. Road snowfall is filtered as a
 // single on/off toggle instead — it only ever appears with severity
 // "warning" (no colour) in practice.
-type RegionalHazard = 'rain' | 'wind' | 'snow';
+type RegionalHazard = 'rain' | 'wind' | 'snow' | 'thunderstorm';
 type SeverityFilterKey = 'watch' | 'orange_warning' | 'red_warning';
 
-const REGIONAL_HAZARDS: RegionalHazard[] = ['rain', 'wind', 'snow'];
+const REGIONAL_HAZARDS: RegionalHazard[] = [
+  'rain',
+  'thunderstorm',
+  'wind',
+  'snow',
+];
 const SEVERITY_FILTER_KEYS: SeverityFilterKey[] = [
   'watch',
   'orange_warning',
@@ -44,6 +51,7 @@ const SEVERITY_FILTER_KEYS: SeverityFilterKey[] = [
 
 const HAZARD_FILTER_LABEL: Record<RegionalHazard, string> = {
   rain: 'Rain',
+  thunderstorm: 'Severe Thunderstorm',
   wind: 'Wind',
   snow: 'Snow',
 };
@@ -58,6 +66,21 @@ const SEVERITY_FILTER_LABEL: Record<SeverityFilterKey, string> = {
 // choice to minimise it is remembered across refreshes (per browser).
 const HOW_TO_STORAGE_KEY = 'gantt-how-to-open';
 
+// localStorage key for the chart's display toggles (legend, peak rainfall
+// band, day labels, 00:00 markers) — each one is independent and remembered
+// per browser, same pattern as HOW_TO_STORAGE_KEY above.
+const RENDER_OPTIONS_STORAGE_KEY = 'gantt-render-options';
+
+const DISPLAY_OPTION_FIELDS: {
+  key: keyof GanttRenderOptions;
+  label: string;
+}[] = [
+  { key: 'showLegend', label: 'Legend' },
+  { key: 'showPeakRainfall', label: 'Peak rainfall band' },
+  { key: 'showDayLabels', label: 'Day labels' },
+  { key: 'showMidnightMarkers', label: '00:00 markers' },
+];
+
 // A bar's severity is "warning" (uncoloured) when the source didn't state a
 // colour — visually and for filtering purposes this is grouped with orange,
 // same as the render logic in GanttCanvas already treats it.
@@ -67,9 +90,13 @@ function severityFilterKey(severity: GanttSeverity): SeverityFilterKey {
   return 'orange_warning';
 }
 
-function defaultVisibleSeverities(): Record<RegionalHazard, Set<SeverityFilterKey>> {
+function defaultVisibleSeverities(): Record<
+  RegionalHazard,
+  Set<SeverityFilterKey>
+> {
   return {
     rain: new Set(SEVERITY_FILTER_KEYS),
+    thunderstorm: new Set(SEVERITY_FILTER_KEYS),
     wind: new Set(SEVERITY_FILTER_KEYS),
     snow: new Set(SEVERITY_FILTER_KEYS),
   };
@@ -96,6 +123,68 @@ export function GanttGenerator() {
     Record<RegionalHazard, Set<SeverityFilterKey>>
   >(defaultVisibleSeverities());
   const [showRoadSnowfall, setShowRoadSnowfall] = useState(true);
+
+  // Chart display toggles (legend / peak rainfall band / day labels / 00:00
+  // markers) — purely cosmetic, each independent, remembered per browser.
+  // Read after mount because localStorage doesn't exist during SSR.
+  const [renderOptions, setRenderOptions] = useState<GanttRenderOptions>(
+    DEFAULT_GANTT_RENDER_OPTIONS,
+  );
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(RENDER_OPTIONS_STORAGE_KEY);
+      if (raw) {
+        setRenderOptions((prev) => ({ ...prev, ...JSON.parse(raw) }));
+      }
+    } catch {
+      // storage blocked (e.g. private mode) — just use the defaults
+    }
+  }, []);
+  const toggleRenderOption = (key: keyof GanttRenderOptions) => {
+    trackEvent('gantt_display_option_toggle', { option: key });
+    setRenderOptions((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        window.localStorage.setItem(
+          RENDER_OPTIONS_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      } catch {
+        // storage blocked — the toggle still works, it just isn't remembered
+      }
+      return next;
+    });
+  };
+  const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
+  const displayOptionsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!displayOptionsOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (
+        displayOptionsRef.current &&
+        !displayOptionsRef.current.contains(e.target as Node)
+      ) {
+        setDisplayOptionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [displayOptionsOpen]);
+
+  // True once GanttBarEditor has changed the bars currently on screen. Used
+  // only to warn before a live refresh would silently throw that away —
+  // reset whenever a fresh chart/snapshot is loaded (see handleResult).
+  const [hasManualEdits, setHasManualEdits] = useState(false);
+
+  // Where the legend currently sits — null means "let GanttCanvas
+  // auto-place it" (its default: whichever corner overlaps the fewest
+  // bars). Set once the legend's been dragged (see GanttCanvas's
+  // onLegendPositionChange), and reset back to null whenever a genuinely
+  // new chart/snapshot loads (see handleResult), since a position dragged
+  // for one set of bars has no reason to still make sense for another.
+  const [legendPosition, setLegendPosition] = useState<LegendPosition | null>(
+    null,
+  );
 
   const toggleSeverity = (hazard: RegionalHazard, key: SeverityFilterKey) => {
     trackEvent('gantt_filter_toggle', { hazard, severity: key });
@@ -129,7 +218,8 @@ export function GanttGenerator() {
   }, [filterOpen]);
 
   const hiddenFilterCount = useMemo(() => {
-    const totalPossible = REGIONAL_HAZARDS.length * SEVERITY_FILTER_KEYS.length + 1;
+    const totalPossible =
+      REGIONAL_HAZARDS.length * SEVERITY_FILTER_KEYS.length + 1;
     const totalVisible =
       REGIONAL_HAZARDS.reduce((sum, h) => sum + visibleSeverities[h].size, 0) +
       (showRoadSnowfall ? 1 : 0);
@@ -147,6 +237,22 @@ export function GanttGenerator() {
   // newest snapshot is then stale (snapshots are only captured while alerts
   // exist), so the chart area shows a holding message instead of it.
   const [noActiveAlerts, setNoActiveAlerts] = useState(false);
+
+  // Live update: whenever the backend processes a change to the issued
+  // alerts feed (new/updated/reissued/removed — any hazard, not just
+  // thunderstorm), it auto-captures a fresh Gantt snapshot and publishes
+  // this same realtime event the Issued Warnings panel already listens to.
+  // Rather than silently replacing whatever's on screen — which would be
+  // jarring, and actively unhelpful during a fast-moving, frequently
+  // reissued severe thunderstorm event — this just surfaces a banner and
+  // lets the person on the page decide whether to pull it in now.
+  const [newAlertsAvailable, setNewAlertsAvailable] = useState(false);
+  const [refreshingLatest, setRefreshingLatest] = useState(false);
+  useNHISChannel((message) => {
+    if (message.name === EVENT.ISSUED_ALERTS_UPDATED) {
+      setNewAlertsAvailable(true);
+    }
+  });
 
   // "How to use this page": open by default (including on the server render),
   // but once someone minimises it that choice is remembered and applied on the
@@ -205,7 +311,13 @@ export function GanttGenerator() {
         gantt_nothing_in_force: undefined,
         gantt_viewing_snapshot: undefined,
       });
-  }, [chart, displayChart, hiddenFilterCount, noActiveAlerts, selectedSnapshotId]);
+  }, [
+    chart,
+    displayChart,
+    hiddenFilterCount,
+    noActiveAlerts,
+    selectedSnapshotId,
+  ]);
 
   const handleResult = (
     data: GanttChart,
@@ -220,6 +332,8 @@ export function GanttGenerator() {
     setChart(sorted);
     setJsonText(JSON.stringify(sorted, null, 2));
     setStatus('success');
+    setHasManualEdits(false);
+    setLegendPosition(null);
 
     const warnings: string[] = [];
     sorted.bars.forEach((b) => {
@@ -245,7 +359,9 @@ export function GanttGenerator() {
     setStatus('loading');
     setStatusMsg('Parsing warnings via Claude...');
     trackEvent('gantt_generate_pasted');
-    const resp = await generateGanttFromInput({ data: { input: input.trim() } });
+    const resp = await generateGanttFromInput({
+      data: { input: input.trim() },
+    });
     if (resp.ok && resp.chart) {
       handleResult(resp.chart);
     } else {
@@ -301,11 +417,12 @@ export function GanttGenerator() {
     const updated: GanttChart = { ...chart, bars: newBars };
     setChart(updated);
     setJsonText(JSON.stringify(updated, null, 2));
+    setHasManualEdits(true);
   };
 
   const onDownload = (dpi: number) => {
     if (!displayChart) return;
-    downloadGanttPng(displayChart, dpi);
+    downloadGanttPng(displayChart, dpi, renderOptions, legendPosition);
     trackEvent('gantt_download', { dpi });
   };
 
@@ -322,6 +439,34 @@ export function GanttGenerator() {
           : '') +
         " Edits here are temporary and won't be saved back to this snapshot.",
     );
+  };
+
+  // Pulls whatever the backend has captured most recently and shows it -
+  // the response to the "new alert issued" banner. Re-fetches the snapshot
+  // list rather than trusting anything cached from mount, since any number
+  // of auto-captures may have landed since then (a fast-moving thunderstorm
+  // can reissue several times in quick succession).
+  const onRefreshForNewAlerts = async () => {
+    setRefreshingLatest(true);
+    trackEvent('gantt_live_refresh');
+    const resp = await getGanttSnapshots();
+    setRefreshingLatest(false);
+    setNewAlertsAvailable(false);
+    if (resp.ok && resp.snapshots) {
+      setSnapshots(resp.snapshots);
+      setNoActiveAlerts(!!resp.noActiveAlerts);
+      if (resp.snapshots.length > 0 && !resp.noActiveAlerts) {
+        selectSnapshot(resp.snapshots[0]);
+        toast.success('Chart updated with the latest issued alerts');
+      } else if (resp.noActiveAlerts) {
+        setChart(null);
+        setJsonText('');
+        setSelectedSnapshotId(null);
+        toast.info('No watches or warnings in force right now');
+      }
+    } else {
+      toast.error('Could not load the latest snapshot');
+    }
   };
 
   // Load the last 5 auto-captured snapshots on mount, and show the latest
@@ -365,27 +510,31 @@ export function GanttGenerator() {
           <ol className="list-decimal pl-5 space-y-1.5">
             <li>
               Paste MetService warning/watch text into the box on the left, or
-              click <span className="font-medium">Use latest scraped alerts</span>{' '}
-              to pull today's data automatically.
+              click{' '}
+              <span className="font-medium">Use latest scraped alerts</span> to
+              pull today's data automatically.
             </li>
             <li>
-              Click <span className="font-medium">Generate from pasted text</span>{' '}
-              — Claude extracts structured bars (region, hazard type,
-              severity, timing) from the text.
+              Click{' '}
+              <span className="font-medium">Generate from pasted text</span> —
+              Claude extracts structured bars (region, hazard type, severity,
+              timing) from the text.
             </li>
             <li>
               Check the chart on the right. If a bar's order, hazard type, or
               severity looks wrong, use the{' '}
-              <span className="font-medium">Bars — order, type &amp; severity</span>{' '}
+              <span className="font-medium">
+                Bars — order, type &amp; severity
+              </span>{' '}
               list below to drag rows into the right order or fix a dropdown —
               changes apply immediately to the chart and export.
             </li>
             <li>
               Click <span className="font-medium">Filters</span> next to the
               download buttons to show or hide specific hazard/severity
-              combinations (e.g. only red warnings, or hide road-specific
-              alerts like Milford Road — shown in purple, separate from
-              regional snow shown in blue).
+              combinations (e.g. only red warnings, or hide road-specific alerts
+              like Milford Road — shown in purple, separate from regional snow
+              shown in blue).
             </li>
             <li>
               Download the chart as a PNG at{' '}
@@ -453,8 +602,8 @@ Northwest winds may approach warning criteria.`}
                 status === 'error'
                   ? 'text-red-600'
                   : status === 'success'
-                  ? 'text-green-700'
-                  : 'text-gray-500'
+                    ? 'text-green-700'
+                    : 'text-gray-500'
               }`}
             >
               {statusMsg}
@@ -482,17 +631,50 @@ Northwest winds may approach warning criteria.`}
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              {chart?.chart_title || 'Gantt output'}
-            </CardTitle>
+            <CardTitle>{chart?.chart_title || 'Gantt output'}</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {chart && newAlertsAvailable && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                <RefreshCw size={16} className="shrink-0 text-blue-600" />
+                <span className="flex-1">
+                  A new or updated warning/watch has just come in.
+                  {hasManualEdits
+                    ? ' Refreshing will discard the manual edits made to this chart.'
+                    : ' Refresh to include it on this chart?'}
+                </span>
+                <Button
+                  size="sm"
+                  onClick={onRefreshForNewAlerts}
+                  disabled={refreshingLatest}
+                >
+                  {refreshingLatest ? 'Refreshing...' : 'Refresh chart'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setNewAlertsAvailable(false)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            )}
             {status === 'loading' ? (
               <Skeleton className="h-[360px] w-full" />
             ) : chart ? (
               <>
                 <div className="overflow-x-auto">
-                  <GanttCanvas data={displayChart ?? chart} />
+                  <GanttCanvas
+                    data={displayChart ?? chart}
+                    options={renderOptions}
+                    legendPosition={legendPosition}
+                    onLegendPositionChange={(pos) => {
+                      if (!legendPosition) {
+                        trackEvent('gantt_legend_drag_start');
+                      }
+                      setLegendPosition(pos);
+                    }}
+                  />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={() => onDownload(300)}>
@@ -501,6 +683,20 @@ Northwest winds may approach warning criteria.`}
                   <Button variant="secondary" onClick={() => onDownload(150)}>
                     Download 150 DPI
                   </Button>
+                  {legendPosition && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        trackEvent('gantt_legend_reset');
+                        setLegendPosition(null);
+                      }}
+                      className="flex items-center gap-1.5 text-gray-500"
+                    >
+                      <RotateCcw size={14} />
+                      Reset legend position
+                    </Button>
+                  )}
 
                   <div className="relative" ref={filterRef}>
                     <Button
@@ -567,10 +763,58 @@ Northwest winds may approach warning criteria.`}
                       </div>
                     )}
                   </div>
+
+                  <div className="relative" ref={displayOptionsRef}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (!displayOptionsOpen) {
+                          trackEvent('gantt_display_options_open');
+                        }
+                        setDisplayOptionsOpen((v) => !v);
+                      }}
+                      className="flex items-center gap-1.5"
+                    >
+                      <SlidersHorizontal size={14} />
+                      Display options
+                    </Button>
+
+                    {displayOptionsOpen && (
+                      <div className="absolute bottom-full left-0 z-20 mb-1 w-56 border rounded-lg bg-white shadow-lg p-3 text-xs">
+                        <p className="font-medium mb-2">
+                          Chart elements (on by default)
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {DISPLAY_OPTION_FIELDS.map(({ key, label }) => (
+                            <label
+                              key={key}
+                              className="flex items-center gap-2 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={renderOptions[key]}
+                                onChange={() => toggleRenderOption(key)}
+                                className="h-3.5 w-3.5"
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-gray-400">
+                          Applies to this chart and its PNG export. The peak
+                          rainfall band only appears when a rain bar actually
+                          has a peak window.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {chart.notes?.length > 0 && (
                   <div className="text-xs text-gray-500">
-                    <div className="font-semibold mb-1">Notes from extractor:</div>
+                    <div className="font-semibold mb-1">
+                      Notes from extractor:
+                    </div>
                     <ul className="list-disc pl-5 space-y-0.5">
                       {chart.notes.map((n, i) => (
                         <li key={i}>{n}</li>
@@ -605,8 +849,8 @@ Northwest winds may approach warning criteria.`}
           <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">
             Auto-captured snapshots{' '}
             <span className="text-xs font-normal text-gray-500">
-              ({snapshots.length} saved — automatically captured whenever
-              issued alerts change)
+              ({snapshots.length} saved — automatically captured whenever issued
+              alerts change)
             </span>
           </summary>
           <div className="px-4 pb-4 pt-1 border-t flex flex-col gap-2">
@@ -640,9 +884,7 @@ Northwest winds may approach warning criteria.`}
         </details>
       )}
 
-      {chart && (
-        <GanttBarEditor bars={chart.bars} onChange={onBarsChange} />
-      )}
+      {chart && <GanttBarEditor bars={chart.bars} onChange={onBarsChange} />}
 
       <p className="text-xs text-gray-500">
         AI-generated content. Always verify times, regions, and severity levels

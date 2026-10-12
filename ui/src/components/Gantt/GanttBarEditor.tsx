@@ -6,6 +6,7 @@ import { sortBarsGeographically } from './GanttCanvas';
 
 const HAZARD_OPTIONS: { value: GanttHazardType; label: string }[] = [
   { value: 'rain', label: 'Rain' },
+  { value: 'thunderstorm', label: 'Severe thunderstorm' },
   { value: 'wind', label: 'Wind' },
   { value: 'snow', label: 'Snow (regional)' },
   { value: 'road_snow', label: 'Road snowfall' },
@@ -37,14 +38,22 @@ function computeLabel(
     wind: 'wind',
     snow: 'snow',
     road_snow: 'road snowfall',
+    thunderstorm: 'severe thunderstorm',
   };
+  const suffix = severity === 'watch' ? 'watch' : 'warning';
+  // Thunderstorm is a deliberate exception: MetService's own alert name has
+  // no colour variant ("Severe Thunderstorm Warning", never "Red Severe
+  // Thunderstorm Warning"), so the label never gets a colour word even when
+  // the bar itself renders red/orange for that severity.
+  if (hazard_type === 'thunderstorm') {
+    return `${region} (severe thunderstorm ${suffix})`;
+  }
   const colourWord =
     severity === 'red_warning'
       ? 'red '
       : severity === 'orange_warning'
         ? 'orange '
         : '';
-  const suffix = severity === 'watch' ? 'watch' : 'warning';
   return `${region} (${colourWord}${hazardNoun[hazard_type]} ${suffix})`;
 }
 
@@ -53,7 +62,10 @@ function formatTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  const day = d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+  });
   return `${day} ${hh}:${mm}`;
 }
 
@@ -177,15 +189,15 @@ export function GanttBarEditor({ bars, onChange }: Props) {
       <summary className="cursor-pointer select-none px-4 py-2.5 font-medium">
         Bars — order, type &amp; severity{' '}
         <span className="text-xs font-normal text-gray-500">
-          ({bars.length} bar{bars.length === 1 ? '' : 's'} — drag to reorder
-          on desktop, or use ▲▼ (works everywhere); adjust hazard or severity)
+          ({bars.length} bar{bars.length === 1 ? '' : 's'} — drag to reorder on
+          desktop, or use ▲▼ (works everywhere); adjust hazard or severity)
         </span>
       </summary>
       <div className="px-4 pb-4 pt-1 border-t">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 py-2">
           <p className="text-xs text-gray-500">
-            Region, start, and end are not editable here — use &quot;Edit
-            parsed JSON&quot; above for those.
+            Region, start, and end are not editable here — use &quot;Edit parsed
+            JSON&quot; above for those.
           </p>
           <Button
             variant="ghost"
@@ -213,7 +225,11 @@ export function GanttBarEditor({ bars, onChange }: Props) {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2 min-w-0">
-                    <MoveButtons index={i} total={bars.length} onMove={moveBar} />
+                    <MoveButtons
+                      index={i}
+                      total={bars.length}
+                      onMove={moveBar}
+                    />
                     <div className="min-w-0">
                       <div className="font-medium truncate">{bar.region}</div>
                       <div className="text-xs text-gray-500 whitespace-nowrap">
@@ -312,7 +328,11 @@ export function GanttBarEditor({ bars, onChange }: Props) {
                       >
                         ⠿
                       </span>
-                      <MoveButtons index={i} total={bars.length} onMove={moveBar} />
+                      <MoveButtons
+                        index={i}
+                        total={bars.length}
+                        onMove={moveBar}
+                      />
                     </div>
 
                     <span className="font-medium truncate" title={bar.region}>

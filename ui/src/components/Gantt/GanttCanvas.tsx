@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react';
-import type { GanttChart, GanttBar } from '@/types/gantt';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { GanttChart, GanttBar, GanttRenderOptions } from '@/types/gantt';
+import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
 
 // ─────────────────────────────────────────────────────────────
 // COLOUR DEFINITIONS — verbatim from the uploaded reference
@@ -9,11 +11,26 @@ import type { GanttChart, GanttBar } from '@/types/gantt';
 // invented per hazard type. "warning" (no colour stated in source, e.g. a
 // Road Snowfall Warning) renders identically to "orange_warning" — see the
 // severity normalisation in drawGantt below. Hazard type is instead signalled
-// by border style: rain/wind keep a solid border; snow and road_snow use a
-// dashed border. road_snow's dash is always blue regardless of severity, so
+// by border style: rain/wind/thunderstorm keep a solid border; snow and
+// road_snow use a dashed border. road_snow's dash is always blue regardless
+// of severity, so
 // it carries a fixed "this is route-specific" signature independent of colour.
 const STYLES = {
   rain: {
+    red_warning: { fill: '#b91c1c', border: '#7f1d1d', textColor: '#ffffff' },
+    orange_warning: {
+      fill: '#d97706',
+      border: '#92400e',
+      textColor: '#ffffff',
+    },
+    watch: { fill: '#facc15', border: '#ca8a04', textColor: '#000000' },
+  },
+  // Severe thunderstorm alerts are a standard regional alert, styled
+  // identically to rain (same fill/border by severity) with a solid border —
+  // it is not route-specific (road_snow) or a snow type, so it gets no
+  // dashed-border treatment. "Be red like the red rain warnings" just means
+  // it uses rain's exact colour-by-severity convention.
+  thunderstorm: {
     red_warning: { fill: '#b91c1c', border: '#7f1d1d', textColor: '#ffffff' },
     orange_warning: {
       fill: '#d97706',
@@ -292,7 +309,8 @@ function getKnownRegionIndex(regionName: string): number | null {
   for (let i = 0; i < NORMALISED_ORDER.length; i++) {
     if (
       name.includes(NORMALISED_ORDER[i]) &&
-      (best === null || NORMALISED_ORDER[i].length > NORMALISED_ORDER[best].length)
+      (best === null ||
+        NORMALISED_ORDER[i].length > NORMALISED_ORDER[best].length)
     ) {
       best = i;
     }
@@ -365,10 +383,334 @@ const SEVERITY_ORDER: Record<string, number> = {
 
 const HAZARD_ORDER: Record<string, number> = {
   rain: 0,
-  wind: 1,
-  snow: 2,
-  road_snow: 3,
+  thunderstorm: 1,
+  wind: 2,
+  snow: 3,
+  road_snow: 4,
 };
+
+// ─────────────────────────────────────────────────────────────
+// LEGEND — built dynamically from whatever hazard/severity combinations
+// are actually present on the chart (plus a "Peak Rain Intensity Period"
+// row when any rain bar has a peak window and the option is on), so it
+// never shows swatches for things that aren't on screen.
+// ─────────────────────────────────────────────────────────────
+type LegendEntry = {
+  label: string;
+  fill: string;
+  border: string;
+  dashed?: boolean;
+};
+
+const LEGEND_HAZARD_BASE: Record<string, string> = {
+  rain: 'Heavy Rain',
+  thunderstorm: 'Severe Thunderstorm',
+  wind: 'Strong Wind',
+  snow: 'Heavy Snow',
+};
+
+function normalizeSeverityKey(
+  severity: GanttBar['severity'],
+): 'red_warning' | 'orange_warning' | 'watch' {
+  if (severity === 'red_warning') return 'red_warning';
+  if (severity === 'watch') return 'watch';
+  return 'orange_warning'; // 'warning' (uncoloured) renders/groups as orange
+}
+
+function legendLabelFor(
+  hazard: string,
+  severity: 'red_warning' | 'orange_warning' | 'watch',
+): string {
+  if (hazard === 'road_snow') return 'Road Snowfall Warning';
+  const base = LEGEND_HAZARD_BASE[hazard] ?? hazard;
+  if (severity === 'watch') return `${base} Watch`;
+  if (severity === 'red_warning') return `${base} Warning - RED`;
+  return `${base} Warning - ORANGE`;
+}
+
+function buildLegendEntries(bars: GanttBar[]): LegendEntry[] {
+  const entries: LegendEntry[] = [];
+  const seen = new Set<string>();
+  const hazardOrder = ['rain', 'thunderstorm', 'wind', 'snow', 'road_snow'];
+  const severityOrder: Array<'red_warning' | 'orange_warning' | 'watch'> = [
+    'red_warning',
+    'orange_warning',
+    'watch',
+  ];
+
+  hazardOrder.forEach((hazard) => {
+    const barsOfHazard = bars.filter((b) => b.hazard_type === hazard);
+    if (barsOfHazard.length === 0) return;
+
+    if (hazard === 'road_snow') {
+      // Fill colour follows severity (reuses rain's convention), border is
+      // always fixed blue — one representative swatch is enough, so use
+      // whichever severity is most severe among the road_snow bars present.
+      const present = severityOrder.find((sev) =>
+        barsOfHazard.some((b) => normalizeSeverityKey(b.severity) === sev),
+      );
+      const style =
+        STYLES.road_snow[present ?? 'orange_warning'] ??
+        STYLES.road_snow.orange_warning;
+      entries.push({
+        label: legendLabelFor('road_snow', present ?? 'orange_warning'),
+        fill: style.fill,
+        border: style.border,
+        dashed: true,
+      });
+      return;
+    }
+
+    severityOrder.forEach((sev) => {
+      const present = barsOfHazard.some(
+        (b) => normalizeSeverityKey(b.severity) === sev,
+      );
+      if (!present) return;
+      const key = `${hazard}-${sev}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const style =
+        STYLES[hazard as Exclude<keyof typeof STYLES, 'peak'>]?.[sev];
+      if (!style) return;
+      entries.push({
+        label: legendLabelFor(hazard, sev),
+        fill: style.fill,
+        border: style.border,
+        dashed: 'dashed' in style ? style.dashed : false,
+      });
+    });
+  });
+
+  // Peak rainfall is shown as a band over the chart, not a legend swatch —
+  // its own on-chart label already says what it is.
+  return entries;
+}
+
+// A legend "box" is always expressed in the same layout-space coordinates
+// as everything else drawn on the chart (0..chartWidth, 0..totalHeight) —
+// this is also exactly the coordinate space the canvas element's CSS
+// width/height use, so a pointer event's offset against the canvas maps
+// straight onto it with no extra scaling, which is what makes dragging work.
+export type LegendBox = { x: number; y: number; width: number; height: number };
+export type LegendPosition = { x: number; y: number };
+
+const LEGEND_SWATCH_SIZE = 14;
+const LEGEND_ROW_HEIGHT = 20;
+const LEGEND_PADDING_X = 10;
+const LEGEND_PADDING_Y = 8;
+const LEGEND_FONT =
+  '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif';
+
+function measureLegendSize(
+  ctx: CanvasRenderingContext2D,
+  entries: LegendEntry[],
+): { width: number; height: number } {
+  ctx.font = `12px ${LEGEND_FONT}`;
+  const maxTextWidth = Math.max(
+    ...entries.map((e) => ctx.measureText(e.label).width),
+  );
+  return {
+    width: LEGEND_PADDING_X * 2 + LEGEND_SWATCH_SIZE + 8 + maxTextWidth,
+    height: LEGEND_PADDING_Y * 2 + entries.length * LEGEND_ROW_HEIGHT,
+  };
+}
+
+// Where the legend lands: if the person has dragged it (legendOverride is
+// set), honour that — just clamped so it can't be dragged off the chart.
+// Otherwise auto-place it in whichever of the four chart corners overlaps
+// the fewest (ideally zero) bars, since a dragged position always takes
+// priority over the automatic one, and a fresh chart has no override yet.
+function computeLegendBox(
+  ctx: CanvasRenderingContext2D,
+  layout: Layout,
+  timeToX: (t: number | Date) => number,
+  entries: LegendEntry[],
+  legendOverride: LegendPosition | null,
+): LegendBox {
+  const { width, height } = measureLegendSize(ctx, entries);
+  const { plotLeft, plotRight, plotTop, chartAreaHeight, totalHeight } = layout;
+
+  if (legendOverride) {
+    const maxX = Math.max(plotLeft, plotRight - width);
+    const maxY = Math.max(4, totalHeight - height - 4);
+    return {
+      x: Math.min(Math.max(legendOverride.x, 0), maxX),
+      y: Math.min(Math.max(legendOverride.y, 0), maxY),
+      width,
+      height,
+    };
+  }
+
+  const bottomY = Math.max(plotTop + 4, plotTop + chartAreaHeight - height - 4);
+  const candidates: LegendBox[] = [
+    { x: plotRight - width - 4, y: plotTop + 4, width, height }, // top-right
+    { x: plotLeft + 4, y: plotTop + 4, width, height }, // top-left
+    { x: plotRight - width - 4, y: bottomY, width, height }, // bottom-right
+    { x: plotLeft + 4, y: bottomY, width, height }, // bottom-left
+  ];
+
+  const barRects = layout.barsParsed.map((bar, i) => {
+    const y1 = layout.plotTop + i * (layout.barHeight + layout.barGap);
+    return {
+      x1: timeToX(bar.startDate),
+      x2: timeToX(bar.endDate),
+      y1,
+      y2: y1 + layout.barHeight,
+    };
+  });
+
+  const overlapArea = (box: LegendBox): number =>
+    barRects.reduce((total, r) => {
+      const ow = Math.max(
+        0,
+        Math.min(box.x + box.width, r.x2) - Math.max(box.x, r.x1),
+      );
+      const oh = Math.max(
+        0,
+        Math.min(box.y + box.height, r.y2) - Math.max(box.y, r.y1),
+      );
+      return total + ow * oh;
+    }, 0);
+
+  let best = candidates[0];
+  let bestOverlap = overlapArea(best);
+  for (let i = 1; i < candidates.length && bestOverlap > 0; i++) {
+    const overlap = overlapArea(candidates[i]);
+    if (overlap < bestOverlap) {
+      best = candidates[i];
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
+
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  box: LegendBox,
+  entries: LegendEntry[],
+) {
+  if (entries.length === 0) return;
+  const { x: boxX, y: boxY, width: boxWidth, height: boxHeight } = box;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+  entries.forEach((entry, i) => {
+    const rowY = boxY + LEGEND_PADDING_Y + i * LEGEND_ROW_HEIGHT;
+    const swatchX = boxX + LEGEND_PADDING_X;
+    const swatchY = rowY + (LEGEND_ROW_HEIGHT - LEGEND_SWATCH_SIZE) / 2;
+
+    ctx.fillStyle = entry.fill;
+    ctx.fillRect(swatchX, swatchY, LEGEND_SWATCH_SIZE, LEGEND_SWATCH_SIZE);
+    ctx.strokeStyle = entry.border;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash(entry.dashed ? [3, 2] : []);
+    ctx.strokeRect(swatchX, swatchY, LEGEND_SWATCH_SIZE, LEGEND_SWATCH_SIZE);
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#000000';
+    ctx.font = `12px ${LEGEND_FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      entry.label,
+      swatchX + LEGEND_SWATCH_SIZE + 8,
+      rowY + LEGEND_ROW_HEIGHT / 2,
+    );
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// PEAK RAINFALL BAND — a full-height highlight spanning the earliest peak
+// start to the latest peak end across all rain bars with a peak window,
+// labelled across the top of the chart. Only drawn when applicable (i.e.
+// at least one rain bar actually has a peak window).
+// ─────────────────────────────────────────────────────────────
+type PeakBand = { start: number; end: number; regions: string[] } | null;
+
+function computePeakBand(
+  barsParsed: {
+    hazard_type: GanttBar['hazard_type'];
+    region: string;
+    peakStartDate: Date | null;
+    peakEndDate: Date | null;
+  }[],
+): PeakBand {
+  const withPeak = barsParsed.filter(
+    (b) => b.hazard_type === 'rain' && b.peakStartDate && b.peakEndDate,
+  );
+  if (withPeak.length === 0) return null;
+  const start = Math.min(...withPeak.map((b) => b.peakStartDate!.getTime()));
+  const end = Math.max(...withPeak.map((b) => b.peakEndDate!.getTime()));
+  const regions = Array.from(new Set(withPeak.map((b) => b.region)));
+  return { start, end, regions };
+}
+
+// ─────────────────────────────────────────────────────────────
+// DAY LABELS — one label per local calendar day covered by the chart,
+// centred under that day's span on the axis (clipped to the chart's edges
+// for a partial first/last day).
+// ─────────────────────────────────────────────────────────────
+type DaySegment = { start: number; end: number };
+
+function computeDaySegments(minTime: number, maxTime: number): DaySegment[] {
+  const segments: DaySegment[] = [];
+  const first = new Date(minTime);
+  let dayStart = new Date(
+    first.getFullYear(),
+    first.getMonth(),
+    first.getDate(),
+    0,
+    0,
+    0,
+    0,
+  ).getTime();
+  for (let i = 0; i < 31; i++) {
+    const d = new Date(dayStart);
+    const dayEnd = new Date(
+      d.getFullYear(),
+      d.getMonth(),
+      d.getDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    ).getTime();
+    const segStart = Math.max(dayStart, minTime);
+    const segEnd = Math.min(dayEnd, maxTime);
+    if (segEnd > segStart) segments.push({ start: segStart, end: segEnd });
+    if (dayEnd >= maxTime) break;
+    dayStart = dayEnd;
+  }
+  return segments;
+}
+
+// Formatted by hand (not toLocaleDateString) so the output is always "Wed
+// 25 Mar" — no comma after the weekday, and no dependence on locale data.
+const DAY_LABEL_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_LABEL_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function formatDayLabel(ts: number): string {
+  const d = new Date(ts);
+  return `${DAY_LABEL_WEEKDAYS[d.getDay()]} ${d.getDate()} ${DAY_LABEL_MONTHS[d.getMonth()]}`;
+}
 
 export function sortBarsGeographically(bars: GanttBar[]): GanttBar[] {
   const tagged = bars.map((b, i) => ({
@@ -478,7 +820,11 @@ function findMidnights(minTime: number, maxTime: number): number[] {
 
 type Layout = ReturnType<typeof computeLayout>;
 
-function computeLayout(data: GanttChart, chartWidth: number) {
+function computeLayout(
+  data: GanttChart,
+  chartWidth: number,
+  options: GanttRenderOptions,
+) {
   const barsParsed = data.bars.map((b) => ({
     ...b,
     startDate: new Date(b.start),
@@ -495,11 +841,25 @@ function computeLayout(data: GanttChart, chartWidth: number) {
 
   const tickTimes = generate3HTicks(minTime, maxTime);
   const midnights = findMidnights(minTime, maxTime);
+  const daySegments = options.showDayLabels
+    ? computeDaySegments(minTime, maxTime)
+    : [];
+  const peakBand = options.showPeakRainfall
+    ? computePeakBand(barsParsed)
+    : null;
+  // Reserve a row above the chart for the peak-rainfall band's label, only
+  // when there's actually a band to label.
+  const peakLabelReserve = peakBand ? 34 : 0;
 
   const marginLeft = 28;
   const marginRight = 28;
-  const marginTop = 8;
-  const marginBottom = 32;
+  const marginTop = 8 + peakLabelReserve;
+  // Day-label row height is always reserved, whether or not the day labels
+  // are actually drawn — so the 00:00 markers have a fixed, stable place to
+  // extend down to (see dayLabelBottomY below) and toggling the day-label
+  // option on/off doesn't shift the chart's overall height.
+  const dayLabelRowHeight = 18;
+  const marginBottom = 32 + dayLabelRowHeight;
   const barHeight = 22;
   const barGap = 3;
   const peakBarHeight = 10;
@@ -511,6 +871,9 @@ function computeLayout(data: GanttChart, chartWidth: number) {
   const chartAreaHeight = barsParsed.length * (barHeight + barGap);
   const axisY = plotTop + chartAreaHeight + 6;
   const totalHeight = axisY + marginBottom;
+  // Bottom of the day-label row (or where it would sit if hidden) — the
+  // 00:00 markers always extend down to here, regardless of the toggle.
+  const dayLabelBottomY = axisY + dayLabelRowHeight + 12;
 
   return {
     plotLeft,
@@ -526,6 +889,10 @@ function computeLayout(data: GanttChart, chartWidth: number) {
     timeSpan,
     tickTimes,
     midnights,
+    daySegments,
+    dayLabelBottomY,
+    peakBand,
+    peakLabelReserve,
     barsParsed,
     totalHeight,
     chartAreaHeight,
@@ -537,7 +904,9 @@ function drawGantt(
   W: number,
   H: number,
   layout: Layout,
-) {
+  options: GanttRenderOptions,
+  legendOverride: LegendPosition | null = null,
+): LegendBox | null {
   const {
     plotLeft,
     plotRight,
@@ -550,6 +919,10 @@ function drawGantt(
     minTime,
     timeSpan,
     tickTimes,
+    midnights,
+    daySegments,
+    peakBand,
+    peakLabelReserve,
     barsParsed,
   } = layout;
 
@@ -569,6 +942,7 @@ function drawGantt(
     const x = timeToX(t);
     ctx.strokeStyle = '#e0e0e0';
     ctx.lineWidth = 0.5;
+    ctx.setLineDash([]);
     ctx.beginPath();
     ctx.moveTo(x, plotTop);
     ctx.lineTo(x, plotTop + layout.chartAreaHeight);
@@ -601,6 +975,20 @@ function drawGantt(
     ctx.fillText(hh + ':' + mm, x, axisY + 8);
   });
 
+  // day labels — one per local calendar day covered, centred under that
+  // day's span (clipped at the chart edges for a partial first/last day)
+  if (options.showDayLabels) {
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#000000';
+    daySegments.forEach((seg) => {
+      const cx = timeToX((seg.start + seg.end) / 2);
+      const label = formatDayLabel((seg.start + seg.end) / 2);
+      ctx.fillText(label, cx, axisY + 22);
+    });
+  }
+
   // bars
   barsParsed.forEach((bar, i) => {
     const y = plotTop + i * (barHeight + barGap);
@@ -613,8 +1001,9 @@ function drawGantt(
     const styleSeverity =
       bar.severity === 'warning' ? 'orange_warning' : bar.severity;
     const style =
-      STYLES[bar.hazard_type]?.[styleSeverity as keyof (typeof STYLES)['rain']] ||
-      STYLES.rain.watch;
+      STYLES[bar.hazard_type]?.[
+        styleSeverity as keyof (typeof STYLES)['rain']
+      ] || STYLES.rain.watch;
 
     ctx.fillStyle = style.fill;
     ctx.fillRect(x1, y, w, barHeight);
@@ -626,7 +1015,12 @@ function drawGantt(
     ctx.strokeRect(x1 + bw / 2, y + bw / 2, w - bw, barHeight - bw);
     ctx.setLineDash([]);
 
-    if (bar.hazard_type === 'rain' && bar.peakStartDate && bar.peakEndDate) {
+    if (
+      options.showPeakRainfall &&
+      bar.hazard_type === 'rain' &&
+      bar.peakStartDate &&
+      bar.peakEndDate
+    ) {
       const px1 = Math.max(timeToX(bar.peakStartDate), x1);
       const px2 = Math.min(timeToX(bar.peakEndDate), x1 + w);
       const pw = Math.max(px2 - px1, 2);
@@ -656,15 +1050,84 @@ function drawGantt(
       ctx.fillText(label, x1 + pad, y + barHeight / 2);
     }
   });
+
+  // Peak rainfall band — drawn AFTER the bars so it sits on top of all of
+  // them (semi-transparent, so bars stay readable underneath), spanning the
+  // full top-to-bottom height of the gantt (first bar row through the
+  // axis) but only as wide as the peak window itself. The label lives in
+  // the reserved strip above the bars, where it doesn't fight with bar text.
+  if (options.showPeakRainfall && peakBand) {
+    const bx1 = timeToX(peakBand.start);
+    const bx2 = timeToX(peakBand.end);
+    const bandTop = plotTop - peakLabelReserve + 4;
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.28)';
+    ctx.fillRect(bx1, bandTop, Math.max(bx2 - bx1, 2), axisY - bandTop);
+
+    ctx.fillStyle = '#581c87';
+    ctx.font = `bold 11px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const cx = (bx1 + bx2) / 2;
+    if (peakBand.regions.length > 1) {
+      ctx.fillText('Peak Rainfall Intensity Period', cx, bandTop + 3);
+      ctx.fillText('- Multiple Regions', cx, bandTop + 16);
+    } else {
+      ctx.fillText('Peak Rainfall Intensity Period', cx, bandTop + 9);
+    }
+  }
+
+  // 00:00 markers — drawn AFTER the bars (on top of all of them) as a
+  // distinct dashed black line at each local midnight. They run from the
+  // top of the chart down past the axis to where the day labels sit (or
+  // would sit, if that option is off — see dayLabelBottomY).
+  if (options.showMidnightMarkers) {
+    midnights.forEach((t) => {
+      const x = timeToX(t);
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, plotTop - peakLabelReserve);
+      ctx.lineTo(x, layout.dayLabelBottomY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
+  // legend — drawn last so it sits on top of everything else. Entries are
+  // dynamic (see buildLegendEntries); its box auto-places into whichever
+  // corner overlaps the fewest bars (see computeLegendBox), or honours a
+  // dragged position when legendOverride is set. Returned so the caller
+  // (the React component) can hit-test pointer events against it for drag.
+  let legendBox: LegendBox | null = null;
+  if (options.showLegend) {
+    const entries = buildLegendEntries(barsParsed);
+    if (entries.length > 0) {
+      legendBox = computeLegendBox(
+        ctx,
+        layout,
+        timeToX,
+        entries,
+        legendOverride,
+      );
+      drawLegend(ctx, legendBox, entries);
+    }
+  }
+  return legendBox;
 }
 
 // ─────────────────────────────────────────────────────────────
 // EXPORT — render at arbitrary DPI
 // ─────────────────────────────────────────────────────────────
-export function downloadGanttPng(data: GanttChart, targetDPI: number) {
+export function downloadGanttPng(
+  data: GanttChart,
+  targetDPI: number,
+  options: GanttRenderOptions = DEFAULT_GANTT_RENDER_OPTIONS,
+  legendPosition: LegendPosition | null = null,
+) {
   const scale = targetDPI / 96;
   const chartWidth = 1400;
-  const layout = computeLayout(data, chartWidth);
+  const layout = computeLayout(data, chartWidth, options);
   const chartHeight = layout.totalHeight;
 
   const offscreen = document.createElement('canvas');
@@ -673,7 +1136,10 @@ export function downloadGanttPng(data: GanttChart, targetDPI: number) {
   const ctx = offscreen.getContext('2d');
   if (!ctx) return;
   ctx.scale(scale, scale);
-  drawGantt(ctx, chartWidth, chartHeight, layout);
+  // legendPosition is in the same 1400-wide layout-space coordinates this
+  // function always lays the chart out in, so it carries over directly
+  // regardless of the export DPI — the PNG matches whatever's on screen.
+  drawGantt(ctx, chartWidth, chartHeight, layout, options, legendPosition);
 
   const link = document.createElement('a');
   const title = data.chart_title || 'Hazard_Gantt';
@@ -689,17 +1155,38 @@ export function downloadGanttPng(data: GanttChart, targetDPI: number) {
 type Props = {
   data: GanttChart;
   width?: number;
+  options?: GanttRenderOptions;
+  // Where to draw the legend, in layout-space coordinates (see LegendBox) —
+  // null means "auto-place it, avoiding bars where possible" (the default).
+  // Set after a drag; GanttGenerator is expected to reset this to null
+  // whenever a genuinely new chart is loaded, so a stale dragged position
+  // never gets carried over onto different data.
+  legendPosition?: LegendPosition | null;
+  onLegendPositionChange?: (pos: LegendPosition) => void;
 };
 
-export function GanttCanvas({ data, width = 1400 }: Props) {
+export function GanttCanvas({
+  data,
+  width = 1400,
+  options = DEFAULT_GANTT_RENDER_OPTIONS,
+  legendPosition = null,
+  onLegendPositionChange,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // The legend's last-drawn box, in layout-space coordinates — used only to
+  // hit-test pointer events against (is the click on the legend?). Updated
+  // by every draw, so it always matches what's actually on screen.
+  const legendBoxRef = useRef<LegendBox | null>(null);
+  const dragGrabRef = useRef<{ dx: number; dy: number } | null>(null);
+  const [isDraggingLegend, setIsDraggingLegend] = useState(false);
+  const [isHoveringLegend, setIsHoveringLegend] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !data || data.bars.length === 0) return;
 
     const DPR = 2;
-    const layout = computeLayout(data, width);
+    const layout = computeLayout(data, width, options);
     const chartHeight = layout.totalHeight;
 
     canvas.width = width * DPR;
@@ -710,8 +1197,65 @@ export function GanttCanvas({ data, width = 1400 }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.scale(DPR, DPR);
-    drawGantt(ctx, width, chartHeight, layout);
-  }, [data, width]);
+    legendBoxRef.current = drawGantt(
+      ctx,
+      width,
+      chartHeight,
+      layout,
+      options,
+      legendPosition,
+    );
+  }, [data, width, options, legendPosition]);
+
+  // canvas.style.width is always set to exactly `width` (layout units)
+  // above, so a pointer offset in CSS pixels maps onto layout-space
+  // coordinates with one scale factor — no DPR involved, since DPR only
+  // affects the canvas's internal pixel buffer, not its CSS/layout size.
+  const toLayoutPoint = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const scale = rect.width > 0 ? width / rect.width : 1;
+    return {
+      x: (e.clientX - rect.left) * scale,
+      y: (e.clientY - rect.top) * scale,
+    };
+  };
+
+  const isInsideLegend = (x: number, y: number) => {
+    const box = legendBoxRef.current;
+    return (
+      !!box &&
+      x >= box.x &&
+      x <= box.x + box.width &&
+      y >= box.y &&
+      y <= box.y + box.height
+    );
+  };
+
+  const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const box = legendBoxRef.current;
+    const point = toLayoutPoint(e);
+    if (!box || !isInsideLegend(point.x, point.y)) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragGrabRef.current = { dx: point.x - box.x, dy: point.y - box.y };
+    setIsDraggingLegend(true);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const point = toLayoutPoint(e);
+    if (dragGrabRef.current) {
+      onLegendPositionChange?.({
+        x: point.x - dragGrabRef.current.dx,
+        y: point.y - dragGrabRef.current.dy,
+      });
+    } else {
+      setIsHoveringLegend(isInsideLegend(point.x, point.y));
+    }
+  };
+
+  const endDrag = () => {
+    dragGrabRef.current = null;
+    setIsDraggingLegend(false);
+  };
 
   if (!data || data.bars.length === 0) {
     return (
@@ -721,5 +1265,23 @@ export function GanttCanvas({ data, width = 1400 }: Props) {
     );
   }
 
-  return <canvas ref={canvasRef} className="rounded border border-gray-200" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className="rounded border border-gray-200"
+      style={{
+        cursor: isDraggingLegend
+          ? 'grabbing'
+          : isHoveringLegend
+            ? 'grab'
+            : 'default',
+        touchAction: 'none',
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onPointerLeave={() => setIsHoveringLegend(false)}
+    />
+  );
 }

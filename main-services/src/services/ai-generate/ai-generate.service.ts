@@ -5,8 +5,16 @@ import { DateTime } from 'luxon';
 import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { NHISCHANNEL_EVENTS } from 'src/events';
 import { z } from 'zod';
-import { createGanttUserPrompt, ganttSystemPrompt } from './ganttPrompt';
 import {
+  parseIssuedAnchorDate,
+  resolveBarPeriod,
+  resolvePeakPeriod,
+} from './dateAnchor';
+import { createGanttUserPrompt, ganttSystemPrompt } from './ganttPrompt';
+import { buildSeverityHazardLabel, parseHeading } from './headingParser';
+import {
+  GanttBar,
+  GanttBarExtraction,
   GanttChart,
   GanttChartSchema,
   SevereWeatherAISummarySchema,
@@ -200,10 +208,119 @@ export class AiGenerateService {
       throw new Error('Anthropic returned no structured Gantt output');
     }
 
+    // The AI's own start/end dates are extraction output, not trusted
+    // calendar arithmetic (see dateAnchor.ts) — every bar's actual DATE is
+    // recomputed here from its start_day/end_day plus the source's single
+    // "Issued:" anchor date, keeping only the AI's HH:MM time-of-day.
+    const anchorDate = parseIssuedAnchorDate(input);
+    if (!anchorDate) {
+      this.logger.warn(
+        'generateGanttChart: no "Issued:" line found in input — skipping deterministic date correction and trusting the AI\'s own start/end dates as-is.',
+      );
+    }
+
+    const bars: GanttBar[] = parsed.bars.map((bar) => {
+      // The AI's own hazard_type/severity/label are extraction output, not
+      // trusted classification or composition (see headingParser.ts) —
+      // every bar's actual hazard_type, severity, and the "(severity
+      // hazardtype)" portion of its label are derived deterministically
+      // here from heading_text, which is a copy task, not a judgement call.
+      const { hazard_type, severity, severityHazardLabel } =
+        this.resolveSeverityAndHazard(bar);
+      const label = `${bar.region}${
+        bar.qualifier ? ` (${bar.qualifier})` : ''
+      } (${severityHazardLabel})`;
+
+      // The AI's own start/end dates are likewise extraction output, not
+      // trusted calendar arithmetic (see dateAnchor.ts) — every bar's actual
+      // DATE is recomputed here from its start_day/end_day plus the
+      // source's single "Issued:" anchor date, keeping only the AI's HH:MM
+      // time-of-day.
+      if (!anchorDate) {
+        // No anchor to correct against — fall back to the AI's own
+        // best-effort start/end as-is.
+        return {
+          region: bar.region,
+          hazard_type,
+          severity,
+          label,
+          start: bar.start,
+          end: bar.end,
+          peak_start: bar.peak_start,
+          peak_end: bar.peak_end,
+          latitude: bar.latitude,
+        };
+      }
+
+      const { start, end, startDate } = resolveBarPeriod(
+        anchorDate,
+        bar.start_day,
+        bar.start,
+        bar.end_day,
+        bar.end,
+      );
+
+      let peak_start = bar.peak_start;
+      let peak_end = bar.peak_end;
+      if (
+        bar.peak_start &&
+        bar.peak_end &&
+        bar.peak_start_day &&
+        bar.peak_end_day
+      ) {
+        const peakResolved = resolvePeakPeriod(
+          startDate,
+          bar.peak_start_day,
+          bar.peak_start,
+          bar.peak_end_day,
+          bar.peak_end,
+        );
+        peak_start = peakResolved.peak_start;
+        peak_end = peakResolved.peak_end;
+      }
+
+      return {
+        region: bar.region,
+        hazard_type,
+        severity,
+        label,
+        start,
+        end,
+        peak_start,
+        peak_end,
+        latitude: bar.latitude,
+      };
+    });
+
+    const chart: GanttChart = { ...parsed, bars };
+
     this.logger.log(
-      `Gantt chart generated: ${parsed.bars.length} bars, title="${parsed.chart_title}"`,
+      `Gantt chart generated: ${chart.bars.length} bars, title="${chart.chart_title}"`,
     );
-    return parsed;
+    return chart;
+  }
+
+  /**
+   * Deterministically derives a bar's hazard_type/severity (and the label's
+   * "(severity hazardtype)" suffix) from heading_text — see headingParser.ts.
+   * Falls back to the AI's own hazard_type/severity fields, logging a
+   * warning, only when heading_text doesn't match any recognised MetService
+   * heading shape.
+   */
+  private resolveSeverityAndHazard(bar: GanttBarExtraction) {
+    const parsedHeading = parseHeading(bar.heading_text);
+    if (!parsedHeading) {
+      this.logger.warn(
+        `generateGanttChart: could not classify heading_text "${bar.heading_text}" for region "${bar.region}" — falling back to the AI's own hazard_type/severity for this bar. If this keeps happening, headingParser.ts needs extending for a new heading shape.`,
+      );
+    }
+    const hazard_type = parsedHeading?.hazardType ?? bar.hazard_type;
+    const severity = parsedHeading?.severity ?? bar.severity;
+    return {
+      hazard_type,
+      severity,
+      severityHazardLabel: buildSeverityHazardLabel(hazard_type, severity),
+    };
   }
 
   // ============================================================

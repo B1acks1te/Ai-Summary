@@ -5,13 +5,16 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './controllers/app.controller';
 import { FeedbackController } from './controllers/feedback.controller';
 import { HealthController } from './controllers/health.controller';
+import { NoticeController } from './controllers/notice.controller';
 import { FeedbackRepository } from './dao/feedback.repository';
+import { NoticeRepository } from './dao/notice.repository';
 import { ScrapeRepository } from './dao/scrape.repository';
 import { MongoService } from './database/mongo.service';
 import { AiGenerateService } from './services/ai-generate/ai-generate.service';
 import { AppService } from './services/app.service';
 import { CronTasksService } from './services/cron-tasks/cron-tasks.service';
 import { FeedbackService } from './services/feedback/feedback.service';
+import { NoticeService } from './services/notice/notice.service';
 import { ScrapeService } from './services/scrape/scrape.service';
 
 @Module({
@@ -21,7 +24,12 @@ import { ScrapeService } from './services/scrape/scrape.service';
     }),
     ScheduleModule.forRoot(),
   ],
-  controllers: [AppController, FeedbackController, HealthController],
+  controllers: [
+    AppController,
+    FeedbackController,
+    HealthController,
+    NoticeController,
+  ],
   providers: [
     AppService,
     MongoService,
@@ -31,6 +39,8 @@ import { ScrapeService } from './services/scrape/scrape.service';
     AiGenerateService,
     FeedbackRepository,
     FeedbackService,
+    NoticeRepository,
+    NoticeService,
   ],
 })
 export class AppModule {}

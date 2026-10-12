@@ -92,6 +92,11 @@ services:
       ABLY_API_KEY: ${ABLY_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+      # Same shared admin password as main-services (FEEDBACK_ADMIN_KEY) -
+      # not a new secret. The UI talks to MongoDB directly for the Admin
+      # UI's Overview stats and Debug/Advanced raw-ID lookups (see
+      # src/lib/adminAuth.server.ts), so it needs its own copy to gate those.
+      FEEDBACK_ADMIN_KEY: ${FEEDBACK_ADMIN_KEY:-}
     networks:
       - app-network
   mongodb:
