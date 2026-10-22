@@ -12,6 +12,7 @@ import {
 } from './dateAnchor';
 import { createGanttUserPrompt, ganttSystemPrompt } from './ganttPrompt';
 import { buildSeverityHazardLabel, parseHeading } from './headingParser';
+import { sortAreasNorthToSouth } from './regionOrder';
 import {
   GanttBar,
   GanttBarExtraction,
@@ -171,7 +172,15 @@ export class AiGenerateService {
       toolDescription:
         'Extract a structured severe-weather outlook summary from the supplied MetService text.',
     });
-    return parsed?.chanceOfUpgrade || [];
+    // The AI's own ordering of each item's "areas" array is extraction
+    // output, not trusted — same reasoning as headingParser.ts/
+    // dateAnchor.ts for Gantt bars: re-sort it deterministically north to
+    // south here rather than relying on the prompt's GEOGRAPHIC ORDERING
+    // instruction alone (see regionOrder.ts for why that isn't reliable).
+    return (parsed?.chanceOfUpgrade || []).map((item) => ({
+      ...item,
+      areas: sortAreasNorthToSouth(item.areas),
+    }));
   }
 
   async invokeThunderstormChatCompletion(outlook: string) {
@@ -183,7 +192,12 @@ export class AiGenerateService {
       toolDescription:
         'Extract a structured thunderstorm outlook summary from the supplied MetService text.',
     });
-    return parsed?.outlooks || [];
+    // Same deterministic re-sort as invokeSevereWeatherChatCompletion —
+    // see regionOrder.ts.
+    return (parsed?.outlooks || []).map((item) => ({
+      ...item,
+      areas: sortAreasNorthToSouth(item.areas),
+    }));
   }
 
   // ============================================================

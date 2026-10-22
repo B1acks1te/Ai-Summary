@@ -55,8 +55,8 @@ GEOGRAPHIC ORDERING (areas field — north to south)
   Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine
   Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman,
   Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura,
-  Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart
-  Island.
+  Westland, Canterbury, Timaru, Otago, Dunedin, Clutha, Southland,
+  Fiordland, Stewart Island.
 - A place not in this list is slotted in by its approximate real-world
   geography relative to the places that are.
 - This ordering applies ONLY to the "areas" array for each item — it NEVER
