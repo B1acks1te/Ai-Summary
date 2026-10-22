@@ -75,6 +75,33 @@ GENERAL RULES
 - Output MUST conform exactly to the provided JSON schema.
 
 --------------------------------------------------
+GEOGRAPHIC ORDERING (areas field — north to south)
+--------------------------------------------------
+- Whenever an "areas" array lists more than one place, order the entries
+  north to south using this reference order:
+  Northland, Great Barrier Island, Auckland, Coromandel Peninsula, Waikato,
+  Bay of Plenty, Taupo, Taumarunui, Gisborne, Hawke's Bay, Taranaki,
+  Taranaki Maunga, Taihape, Whanganui, Manawatu, Horowhenua, Kapiti Coast,
+  Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine
+  Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman,
+  Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura,
+  Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart
+  Island.
+- A place not in this list is slotted in by its approximate real-world
+  geography relative to the places that are.
+- This ordering applies ONLY to the "areas" array for each item — it NEVER
+  changes word order inside a "quotes" entry, which must stay an exact,
+  verbatim, contiguous substring of the source text regardless of what
+  order the source mentions places in.
+- Do NOT preserve the order the source text happens to mention places in
+  when populating "areas" — always re-sort north to south, even if that
+  means reordering relative to the quote.
+  Example: source says "...for southern Fiordland, Southland, Stewart
+  Island and Clutha." → areas MUST be ordered
+  ["Southland", "Clutha", "southern Fiordland", "Stewart Island"], NOT the
+  source's own "Fiordland, Southland, Stewart Island, Clutha" order.
+
+--------------------------------------------------
 RED WARNING HANDLING
 --------------------------------------------------
 - If the text explicitly states a Red Warning is in place or has been issued, populate issuedRedWarning under IssuredWatcheOrWarnings.

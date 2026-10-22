@@ -45,6 +45,29 @@ GENERAL RULES
 - Do NOT create an item for any sentence where the risk is "Minimal" and the area is generic or non-specific (such as "elsewhere", "the remainder", "the rest of New Zealand", "other areas", or similar phrases). Only create items for specific, named regions or locations.
 
 --------------------------------------------------
+GEOGRAPHIC ORDERING (areas field — north to south)
+--------------------------------------------------
+- Whenever an "areas" array lists more than one place, order the entries
+  north to south using this reference order:
+  Northland, Great Barrier Island, Auckland, Coromandel Peninsula, Waikato,
+  Bay of Plenty, Taupo, Taumarunui, Gisborne, Hawke's Bay, Taranaki,
+  Taranaki Maunga, Taihape, Whanganui, Manawatu, Horowhenua, Kapiti Coast,
+  Porirua, Wellington, Hutt Valley, Wairarapa, Kaweka Ranges, Ruahine
+  Ranges, Tararua Range, Tararua District, Buller, Grey, Nelson, Tasman,
+  Motueka, Richmond Ranges, Marlborough, Marlborough Sounds, Kaikoura,
+  Westland, Canterbury, Timaru, Otago, Southland, Fiordland, Stewart
+  Island.
+- A place not in this list is slotted in by its approximate real-world
+  geography relative to the places that are.
+- This ordering applies ONLY to the "areas" array for each item — it NEVER
+  changes word order inside a "quotes" entry, which must stay an exact,
+  verbatim, contiguous substring of the source text regardless of what
+  order the source mentions places in.
+- Do NOT preserve the order the source text happens to mention places in
+  when populating "areas" — always re-sort north to south, even if that
+  means reordering relative to the quote.
+
+--------------------------------------------------
 JSON / FORMATTING RULES
 --------------------------------------------------
 - Never output the literal string "null" inside an array or object (e.g. do NOT output ["null"]).
