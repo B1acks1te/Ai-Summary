@@ -1019,9 +1019,18 @@ function drawGantt(
       bar.peakStartDate &&
       bar.peakEndDate
     ) {
-      const px1 = Math.max(timeToX(bar.peakStartDate), x1);
-      const px2 = Math.min(timeToX(bar.peakEndDate), x1 + w);
-      const pw = Math.max(px2 - px1, 2);
+      const px1Raw = Math.max(timeToX(bar.peakStartDate), x1);
+      const px2Raw = Math.min(timeToX(bar.peakEndDate), x1 + w);
+      // Enforcing a minimum visible width (below) is fine for a genuinely
+      // narrow peak window, but when the server-side clamp has already
+      // pinned both ends to the bar's own right edge (the AI's guessed
+      // peak window fell entirely outside the warning period), px1Raw
+      // lands exactly at x1 + w. Growing the draw rect to the right from
+      // there — as a plain Math.max(px2 - px1, 2) would — pushes the
+      // minimum-width sliver past the bar's own box. Keep the whole
+      // highlight, minimum width included, inside [x1, x1 + w].
+      const pw = Math.min(Math.max(px2Raw - px1Raw, 2), w);
+      const px1 = Math.min(px1Raw, x1 + w - pw);
       const peakY = y + (barHeight - peakBarHeight) / 2;
       ctx.fillStyle = STYLES.peak.fill;
       ctx.fillRect(px1, peakY, pw, peakBarHeight);

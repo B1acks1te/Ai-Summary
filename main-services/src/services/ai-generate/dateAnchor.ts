@@ -197,6 +197,12 @@ export function resolvePeakPeriod(
  * itself — so any guessed boundary that lands outside [start, end] is
  * pulled back to the bar's own edge rather than trusted as-is.
  */
+// When a clamped peak window collapses to a single point (see below), it
+// gets opened back up into a window of this length, so the highlight
+// stays readable instead of vanishing. 3 hours matches how these
+// warnings typically phrase a vague boundary ("early morning" etc.).
+const FALLBACK_PEAK_WINDOW_MS = 3 * 60 * 60 * 1000;
+
 export function clampPeakToBarPeriod(
   peakStart: string,
   peakEnd: string,
@@ -227,6 +233,29 @@ export function clampPeakToBarPeriod(
   // Guard the (unlikely) case where clamping flips start after end.
   if (clampedEndMs < clampedStartMs) {
     [clampedStartMs, clampedEndMs] = [clampedEndMs, clampedStartMs];
+  }
+
+  // A vague phrase like "early Tuesday morning" can make the AI guess a
+  // peak window that falls ENTIRELY outside the bar — not just
+  // overshooting one edge, but both boundaries landing past it (e.g. the
+  // warning ends 6:00am and the AI guesses 6:15am–6:45am for "early
+  // morning"). Plain clamping collapses that to a single point flush
+  // with the bar's own edge, which renders as an invisible or
+  // near-invisible highlight — indistinguishable from "no peak data"
+  // even though the source text clearly describes one. When the
+  // original, pre-clamp guess landed wholly on one side, treat that
+  // edge as the real boundary and open the window back up by a fixed,
+  // readable duration instead of leaving it collapsed to a point.
+  if (clampedStartMs === clampedEndMs) {
+    const bothPastEnd = peakStartMs >= hi && peakEndMs >= hi;
+    const bothBeforeStart = peakStartMs <= lo && peakEndMs <= lo;
+    if (bothPastEnd) {
+      clampedStartMs = Math.max(hi - FALLBACK_PEAK_WINDOW_MS, lo);
+      clampedEndMs = hi;
+    } else if (bothBeforeStart) {
+      clampedStartMs = lo;
+      clampedEndMs = Math.min(lo + FALLBACK_PEAK_WINDOW_MS, hi);
+    }
   }
 
   return {
