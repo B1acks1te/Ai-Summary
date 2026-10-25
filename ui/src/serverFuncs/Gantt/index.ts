@@ -42,6 +42,11 @@ export const generateGanttFromLatest = createServerFn().handler(
   },
 );
 
+// NOTE: regenerating a chart from an arbitrary past timestamp is an
+// admin-only capability — see serverFuncs/Admin/index.ts's
+// adminRegenerateGanttAt, used from the Admin UI's "Gantt regen" tab, not
+// from this public page.
+
 type SnapshotsResponse = {
   ok: boolean;
   snapshots?: GanttSnapshot[];

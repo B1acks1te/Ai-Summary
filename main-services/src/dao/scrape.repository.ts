@@ -94,6 +94,28 @@ export class ScrapeRepository {
     return collection.findOne({}, { sort: { insertedAt: -1 } });
   }
 
+  // ------------------------------------------------------------
+  // Every change to the issued-alerts feed inserts a NEW document rather
+  // than overwriting one (see ScrapeService.updateIssuedAlerts), so the
+  // full history is sitting in this collection already. This finds
+  // whichever one was "latest" as of a given point in time — i.e. the most
+  // recent record with insertedAt <= at — which is what lets an older
+  // Gantt chart be regenerated against the exact alert set it was
+  // originally built from, even though "latest" has since moved on.
+  // ------------------------------------------------------------
+  async findIssuedAlertsAsOf(
+    at: Date,
+  ): Promise<IssuedAlertEntriesDocument | null> {
+    const collection =
+      this.mongoService.getCollection<IssuedAlertEntriesDocument>(
+        ISSUED_ALERTS_COLLECTION,
+      );
+    return collection.findOne(
+      { insertedAt: { $lte: at } },
+      { sort: { insertedAt: -1 } },
+    );
+  }
+
   async insertIssuedAlerts(
     issuedAlertEntries: IssuedAlertEntriesDocument,
   ): Promise<void> {
@@ -151,7 +173,32 @@ export class ScrapeRepository {
   // ------------------------------------------------------------
   async getLatestIssuedAlertsAsText(): Promise<string> {
     const latest = await this.findLatestIssuedAlerts();
-    if (!latest || !latest.entries.length) {
+    return this.issuedAlertsDocToText(latest);
+  }
+
+  // ------------------------------------------------------------
+  // Same as getLatestIssuedAlertsAsText, but for whatever was "latest" as
+  // of a given point in time (findIssuedAlertsAsOf) rather than right now.
+  // This is what lets an older auto-captured Gantt chart be regenerated
+  // from its original source data to verify a fix, even after newer
+  // alerts have come in and "latest" has moved past it. Returns the
+  // matched record's own timestamp alongside the text so a caller can
+  // show exactly what it regenerated against.
+  // ------------------------------------------------------------
+  async getIssuedAlertsAsTextAsOf(
+    at: Date,
+  ): Promise<{ text: string; matchedAt: Date | null }> {
+    const record = await this.findIssuedAlertsAsOf(at);
+    return {
+      text: this.issuedAlertsDocToText(record),
+      matchedAt: record?.insertedAt ?? null,
+    };
+  }
+
+  private issuedAlertsDocToText(
+    doc: IssuedAlertEntriesDocument | null,
+  ): string {
+    if (!doc || !doc.entries.length) {
       return '';
     }
 
@@ -166,7 +213,7 @@ export class ScrapeRepository {
       }
     };
 
-    const blocks = latest.entries
+    const blocks = doc.entries
       .filter((e) => e._status !== 'removed')
       .map((e) => {
         const headline = e.headline || e.event || 'Weather alert';
@@ -192,7 +239,7 @@ export class ScrapeRepository {
     // issued". Format matches dateAnchor.ts's parseIssuedAnchorDate regex
     // exactly: "Issued: H:MMam Ddd D Month YYYY" (e.g.
     // "Issued: 9:41am Tue 26 October 2026").
-    const anchor = DateTime.fromJSDate(latest.updatedAt).setZone(
+    const anchor = DateTime.fromJSDate(doc.updatedAt).setZone(
       'Pacific/Auckland',
     );
     const issuedLine = anchor.isValid

@@ -1,17 +1,52 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
+import { createHash, timingSafeEqual } from 'crypto';
 import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { AiGenerateService } from 'src/services/ai-generate/ai-generate.service';
 import { AppService } from 'src/services/app.service';
 import { ScrapeService } from 'src/services/scrape/scrape.service';
 
+// After this many wrong admin passwords, sign-in pauses for everyone for a
+// while — same shape/protection as Feedback's and Notice's own independent
+// counters (see notice.service.ts's checkAdmin).
+const ADMIN_MAX_FAILURES = 10;
+const ADMIN_FAILURE_WINDOW_MS = 10 * 60 * 1000;
+
 @Controller()
 export class AppController {
+  private readonly adminFailures = new Map<string, number[]>();
+
   constructor(
     private readonly appService: AppService,
     private readonly scrapeService: ScrapeService,
     private readonly aiGenerateService: AiGenerateService,
     private readonly scrapeRepository: ScrapeRepository,
   ) {}
+
+  // ---- admin auth (own lockout, independent of Feedback/Notice) ---------
+  // Same FEEDBACK_ADMIN_KEY secret, same sha256 + timingSafeEqual check as
+  // the rest of the app's admin-gated endpoints.
+  private checkAdmin(key: string | undefined): string | null {
+    const expected = process.env.FEEDBACK_ADMIN_KEY;
+    if (!expected) return 'Admin access is not configured.';
+
+    const now = Date.now();
+    const recent = (this.adminFailures.get('admin') ?? []).filter(
+      (t) => now - t < ADMIN_FAILURE_WINDOW_MS,
+    );
+    if (recent.length >= ADMIN_MAX_FAILURES) {
+      this.adminFailures.set('admin', recent);
+      return 'Too many wrong passwords - please wait a few minutes and try again.';
+    }
+    if (!key) return 'Unauthorized';
+
+    const a = createHash('sha256').update(key).digest();
+    const b = createHash('sha256').update(expected).digest();
+    if (a.length === b.length && timingSafeEqual(a, b)) return null;
+
+    recent.push(now);
+    this.adminFailures.set('admin', recent);
+    return 'Unauthorized';
+  }
 
   @Get()
   getHello(): string {
@@ -99,6 +134,59 @@ export class AppController {
       }
       const chart = await this.aiGenerateService.generateGanttChart(text);
       return { ok: true, chart, sourceText: text };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  // ------------------------------------------------------------
+  // GANTT — regenerate a chart from whatever issued alerts were "latest"
+  // as of a given timestamp, using the CURRENT extraction code. For
+  // verifying a fix against an older real-world case (e.g. an
+  // auto-captured snapshot from last night) without waiting for "latest"
+  // to naturally cycle back around, and without disturbing the rolling
+  // auto-captured snapshot list — this never writes to gantt_snapshots,
+  // it only reads issued_alert_entries and returns a fresh chart.
+  //
+  // ADMIN ONLY — this triggers an AI call on demand against arbitrary
+  // historical data, so it's gated the same way as Feedback/Notice's
+  // admin endpoints (x-admin-key header, FEEDBACK_ADMIN_KEY secret), not
+  // exposed on the public Gantt page.
+  //
+  // Body: { at: string } — an ISO timestamp, e.g. a snapshot's insertedAt.
+  // ------------------------------------------------------------
+  @Post('regenerate-gantt-at')
+  async regenerateGanttAt(
+    @Headers('x-admin-key') adminKey: string | undefined,
+    @Body() body: { at?: string },
+  ) {
+    const authError = this.checkAdmin(adminKey);
+    if (authError) return { ok: false, error: authError };
+
+    const atIso = body?.at;
+    if (!atIso) {
+      return { ok: false, error: 'No "at" timestamp provided' };
+    }
+    const at = new Date(atIso);
+    if (Number.isNaN(at.getTime())) {
+      return { ok: false, error: `Invalid "at" timestamp: ${atIso}` };
+    }
+    try {
+      const { text, matchedAt } =
+        await this.scrapeRepository.getIssuedAlertsAsTextAsOf(at);
+      if (!text) {
+        return {
+          ok: false,
+          error: `No issued alerts found on or before ${at.toISOString()}.`,
+        };
+      }
+      const chart = await this.aiGenerateService.generateGanttChart(text);
+      return {
+        ok: true,
+        chart,
+        sourceText: text,
+        matchedAt: matchedAt?.toISOString() ?? null,
+      };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
