@@ -132,6 +132,22 @@ export class ScrapeRepository {
   // ------------------------------------------------------------
   // NEW: render the latest scraped issued alerts as MetService-style
   // text suitable for feeding into the Gantt extraction prompt.
+  //
+  // IMPORTANT — this text MUST carry an "Issued:" line (see below). A real
+  // MetService bulletin always has one, and dateAnchor.ts's
+  // parseIssuedAnchorDate() depends on finding exactly that one line to
+  // anchor every day-of-week abbreviation in the document to a real
+  // calendar date. Without it, parseIssuedAnchorDate() returns null and
+  // ai-generate.service.ts's generateGanttChart() silently falls back to
+  // trusting the AI's own raw start/end AND peak_start/peak_end as-is,
+  // skipping resolveBarPeriod()/resolvePeakPeriod() entirely for every
+  // bar — exactly the "AI's own date arithmetic drifts, especially many
+  // paragraphs into a long document" failure mode dateAnchor.ts exists to
+  // prevent (see its own file header). That drift is why the Gantt
+  // "Use latest scraped alerts" flow could previously render a per-bar
+  // peak highlight that visibly doesn't line up with the overall peak
+  // band — a manually pasted bulletin never showed this bug because it
+  // always carries a real "Issued:" line of its own.
   // ------------------------------------------------------------
   async getLatestIssuedAlertsAsText(): Promise<string> {
     const latest = await this.findLatestIssuedAlerts();
@@ -171,7 +187,21 @@ export class ScrapeRepository {
           .join('\n');
       });
 
-    return blocks.join('\n\n---\n\n');
+    // Anchored to when this alert set was last scraped/updated — the
+    // closest real timestamp we have standing in for "when this was
+    // issued". Format matches dateAnchor.ts's parseIssuedAnchorDate regex
+    // exactly: "Issued: H:MMam Ddd D Month YYYY" (e.g.
+    // "Issued: 9:41am Tue 26 October 2026").
+    const anchor = DateTime.fromJSDate(latest.updatedAt).setZone(
+      'Pacific/Auckland',
+    );
+    const issuedLine = anchor.isValid
+      ? `Issued: ${anchor.toFormat('h:mma ccc d LLLL yyyy')}`
+      : '';
+
+    return [issuedLine, blocks.join('\n\n---\n\n')]
+      .filter(Boolean)
+      .join('\n\n');
   }
 
   // ------------------------------------------------------------

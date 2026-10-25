@@ -76,7 +76,8 @@ const DISPLAY_OPTION_FIELDS: {
   label: string;
 }[] = [
   { key: 'showLegend', label: 'Legend' },
-  { key: 'showPeakRainfall', label: 'Peak rainfall band' },
+  { key: 'showPeakBars', label: 'Peak highlight on bars' },
+  { key: 'showPeakBand', label: 'Peak rainfall band' },
   { key: 'showDayLabels', label: 'Day labels' },
   { key: 'showMidnightMarkers', label: '00:00 markers' },
 ];
@@ -802,8 +803,8 @@ Northwest winds may approach warning criteria.`}
                           ))}
                         </div>
                         <p className="mt-2 text-[11px] text-gray-400">
-                          Applies to this chart and its PNG export. The peak
-                          rainfall band only appears when a rain bar actually
+                          Applies to this chart and its PNG export. Peak
+                          highlight/band only appear when a rain bar actually
                           has a peak window.
                         </p>
                       </div>

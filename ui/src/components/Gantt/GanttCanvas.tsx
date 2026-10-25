@@ -392,8 +392,8 @@ const HAZARD_ORDER: Record<string, number> = {
 // ─────────────────────────────────────────────────────────────
 // LEGEND — built dynamically from whatever hazard/severity combinations
 // are actually present on the chart (plus a "Peak Rain Intensity Period"
-// row when any rain bar has a peak window and the option is on), so it
-// never shows swatches for things that aren't on screen.
+// row when any rain bar has a peak window and the peak band option is on),
+// so it never shows swatches for things that aren't on screen.
 // ─────────────────────────────────────────────────────────────
 type LegendEntry = {
   label: string;
@@ -844,9 +844,7 @@ function computeLayout(
   const daySegments = options.showDayLabels
     ? computeDaySegments(minTime, maxTime)
     : [];
-  const peakBand = options.showPeakRainfall
-    ? computePeakBand(barsParsed)
-    : null;
+  const peakBand = options.showPeakBand ? computePeakBand(barsParsed) : null;
   // Reserve a row above the chart for the peak-rainfall band's label, only
   // when there's actually a band to label.
   const peakLabelReserve = peakBand ? 34 : 0;
@@ -1016,7 +1014,7 @@ function drawGantt(
     ctx.setLineDash([]);
 
     if (
-      options.showPeakRainfall &&
+      options.showPeakBars &&
       bar.hazard_type === 'rain' &&
       bar.peakStartDate &&
       bar.peakEndDate
@@ -1056,7 +1054,7 @@ function drawGantt(
   // full top-to-bottom height of the gantt (first bar row through the
   // axis) but only as wide as the peak window itself. The label lives in
   // the reserved strip above the bars, where it doesn't fight with bar text.
-  if (options.showPeakRainfall && peakBand) {
+  if (options.showPeakBand && peakBand) {
     const bx1 = timeToX(peakBand.start);
     const bx2 = timeToX(peakBand.end);
     const bandTop = plotTop - peakLabelReserve + 4;
