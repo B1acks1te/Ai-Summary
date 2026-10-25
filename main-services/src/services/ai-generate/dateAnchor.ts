@@ -181,3 +181,68 @@ export function resolvePeakPeriod(
     peak_end: combineDateAndTime(peakEndDate, extractTimeOfDay(peakEndIso)),
   };
 }
+
+/**
+ * Clamps a resolved peak window so it never extends outside its own bar's
+ * resolved start/end.
+ *
+ * Source text often describes the peak with a vague phrase instead of a
+ * clock time — "early Tuesday morning", "overnight" — which forces the AI
+ * to guess an HH:MM for that boundary. That guess has no obligation to
+ * respect the warning's own stated end time, and when it overshoots (e.g.
+ * guessing 6:30am for "early morning" when the warning itself ends at
+ * 6:00am), the peak highlight visibly hangs a sliver off the end of the
+ * bar it belongs to. A peak period is logically scoped to the warning
+ * period it describes — it cannot start before or end after the warning
+ * itself — so any guessed boundary that lands outside [start, end] is
+ * pulled back to the bar's own edge rather than trusted as-is.
+ */
+export function clampPeakToBarPeriod(
+  peakStart: string,
+  peakEnd: string,
+  barStart: string,
+  barEnd: string,
+): { peak_start: string; peak_end: string } {
+  const barStartMs = new Date(barStart).getTime();
+  const barEndMs = new Date(barEnd).getTime();
+  const peakStartMs = new Date(peakStart).getTime();
+  const peakEndMs = new Date(peakEnd).getTime();
+
+  if (
+    Number.isNaN(barStartMs) ||
+    Number.isNaN(barEndMs) ||
+    Number.isNaN(peakStartMs) ||
+    Number.isNaN(peakEndMs)
+  ) {
+    // Unparseable — leave as-is rather than guessing further.
+    return { peak_start: peakStart, peak_end: peakEnd };
+  }
+
+  const lo = Math.min(barStartMs, barEndMs);
+  const hi = Math.max(barStartMs, barEndMs);
+  const clamp = (ms: number) => Math.min(Math.max(ms, lo), hi);
+
+  let clampedStartMs = clamp(peakStartMs);
+  let clampedEndMs = clamp(peakEndMs);
+  // Guard the (unlikely) case where clamping flips start after end.
+  if (clampedEndMs < clampedStartMs) {
+    [clampedStartMs, clampedEndMs] = [clampedEndMs, clampedStartMs];
+  }
+
+  return {
+    peak_start: combineDateAndTime(
+      new Date(clampedStartMs),
+      formatHHMM(new Date(clampedStartMs)),
+    ),
+    peak_end: combineDateAndTime(
+      new Date(clampedEndMs),
+      formatHHMM(new Date(clampedEndMs)),
+    ),
+  };
+}
+
+function formatHHMM(d: Date): string {
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
+}
