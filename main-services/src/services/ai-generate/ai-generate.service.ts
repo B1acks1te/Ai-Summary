@@ -6,6 +6,7 @@ import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { NHISCHANNEL_EVENTS } from 'src/events';
 import { z } from 'zod';
 import {
+  clampPeakToBarPeriod,
   parseIssuedAnchorDate,
   resolveBarPeriod,
   resolvePeakPeriod,
@@ -289,8 +290,20 @@ export class AiGenerateService {
           bar.peak_end_day,
           bar.peak_end,
         );
-        peak_start = peakResolved.peak_start;
-        peak_end = peakResolved.peak_end;
+        // Vague phrases like "early Tuesday morning" force the AI to guess
+        // an HH:MM, and that guess has no obligation to respect the
+        // warning's own stated start/end — it can land a few minutes past
+        // the bar's own edge, producing a near-invisible sliver that looks
+        // misaligned. Clamp the resolved peak back inside this bar's own
+        // resolved [start, end] before using it.
+        const peakClamped = clampPeakToBarPeriod(
+          peakResolved.peak_start,
+          peakResolved.peak_end,
+          start,
+          end,
+        );
+        peak_start = peakClamped.peak_start;
+        peak_end = peakClamped.peak_end;
       }
 
       return {
