@@ -39,6 +39,13 @@ export type GanttSnapshot = GanttChart & {
   insertedAt: string;
 };
 
+// Row order for the chart's bars.
+// - 'default': whatever order the chart data already has (the order the
+//   extractor/editor produced it in — this is "how it's doing now").
+// - 'start_time': rows sorted by each bar's own start date/time, earliest
+//   first.
+export type GanttSortOrder = 'default' | 'start_time';
+
 // Display toggles for GanttCanvas (see the "Display options" control on the
 // Gantt page). Each one is independent and purely cosmetic — none of them
 // change the underlying chart data, filtering, or PNG export resolution.
@@ -53,6 +60,7 @@ export type GanttRenderOptions = {
   showPeakBand: boolean;
   showDayLabels: boolean;
   showMidnightMarkers: boolean;
+  sortOrder: GanttSortOrder;
 };
 
 // Matches the reference chart supplied by MetService/ops: every display
@@ -63,4 +71,5 @@ export const DEFAULT_GANTT_RENDER_OPTIONS: GanttRenderOptions = {
   showPeakBand: true,
   showDayLabels: true,
   showMidnightMarkers: true,
+  sortOrder: 'default',
 };

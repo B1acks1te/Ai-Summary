@@ -156,6 +156,24 @@ export function GanttGenerator() {
       return next;
     });
   };
+  // Row order isn't a simple on/off toggle like the rest of renderOptions,
+  // so it gets its own setter — same persist-to-localStorage pattern as
+  // toggleRenderOption above.
+  const setSortOrder = (sortOrder: GanttRenderOptions['sortOrder']) => {
+    trackEvent('gantt_sort_order_change', { sortOrder });
+    setRenderOptions((prev) => {
+      const next = { ...prev, sortOrder };
+      try {
+        window.localStorage.setItem(
+          RENDER_OPTIONS_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      } catch {
+        // storage blocked — the change still works, it just isn't remembered
+      }
+      return next;
+    });
+  };
   const [displayOptionsOpen, setDisplayOptionsOpen] = useState(false);
   const displayOptionsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -289,8 +307,18 @@ export function GanttGenerator() {
       const key = severityFilterKey(bar.severity);
       return visibleSeverities[bar.hazard_type as RegionalHazard].has(key);
     });
+    // 'default' keeps chart.bars' own order (geographic, north-to-south —
+    // see sortBarsGeographically in handleResult). 'start_time' re-sorts
+    // the already-filtered rows by each bar's own start date/time. Done
+    // here rather than on chart.bars itself, same reasoning as filtering
+    // above: switching the option never requires a re-generation.
+    if (renderOptions.sortOrder === 'start_time') {
+      bars.sort(
+        (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+      );
+    }
     return { ...chart, bars };
-  }, [chart, visibleSeverities, showRoadSnowfall]);
+  }, [chart, visibleSeverities, showRoadSnowfall, renderOptions.sortOrder]);
 
   // Tell the Feedback form what is on screen, so a report about the chart
   // arrives with useful context (labels and counts only).
@@ -801,6 +829,30 @@ Northwest winds may approach warning criteria.`}
                               {label}
                             </label>
                           ))}
+                        </div>
+                        <div className="mt-3 pt-3 border-t">
+                          <label
+                            htmlFor="gantt-sort-order"
+                            className="font-medium block mb-1.5"
+                          >
+                            Row order
+                          </label>
+                          <select
+                            id="gantt-sort-order"
+                            value={renderOptions.sortOrder}
+                            onChange={(e) =>
+                              setSortOrder(
+                                e.target
+                                  .value as GanttRenderOptions['sortOrder'],
+                              )
+                            }
+                            className="w-full border rounded px-1.5 py-1 text-xs bg-white"
+                          >
+                            <option value="default">Default</option>
+                            <option value="start_time">
+                              Start date/time
+                            </option>
+                          </select>
                         </div>
                         <p className="mt-2 text-[11px] text-gray-400">
                           Applies to this chart and its PNG export. Peak
