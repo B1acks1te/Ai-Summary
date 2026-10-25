@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'crypto';
 import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { AiGenerateService } from 'src/services/ai-generate/ai-generate.service';
+import type { GanttBar } from 'src/services/ai-generate/schema';
 import { AppService } from 'src/services/app.service';
 import { ScrapeService } from 'src/services/scrape/scrape.service';
 
@@ -187,6 +188,50 @@ export class AppController {
         sourceText: text,
         matchedAt: matchedAt?.toISOString() ?? null,
       };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  // ------------------------------------------------------------
+  // GANTT — replace an existing auto-captured snapshot's data in place
+  // (same _id and insertedAt — only chart_title/bars/notes change). This
+  // is how a regenerated chart (see regenerate-gantt-at above) actually
+  // reaches the PUBLIC Gantt page: that endpoint only returns a fresh
+  // chart for an admin to review, it never saves anything — this is the
+  // explicit, separate "yes, replace the public one with this corrected
+  // version" step.
+  //
+  // ADMIN ONLY — same x-admin-key gating as regenerate-gantt-at.
+  // Body: { id: string, chart: { chart_title, bars, notes } }.
+  // ------------------------------------------------------------
+  @Post('update-gantt-snapshot')
+  async updateGanttSnapshot(
+    @Headers('x-admin-key') adminKey: string | undefined,
+    @Body()
+    body: {
+      id?: string;
+      chart?: { chart_title?: string; bars?: GanttBar[]; notes?: string[] };
+    },
+  ) {
+    const authError = this.checkAdmin(adminKey);
+    if (authError) return { ok: false, error: authError };
+
+    const { id, chart } = body || {};
+    if (!id) return { ok: false, error: 'No snapshot id provided' };
+    if (!chart || !Array.isArray(chart.bars)) {
+      return { ok: false, error: 'No valid chart provided' };
+    }
+    try {
+      const updated = await this.scrapeRepository.updateGanttSnapshot(id, {
+        chart_title: chart.chart_title || '',
+        bars: chart.bars,
+        notes: chart.notes || [],
+      });
+      if (!updated) {
+        return { ok: false, error: 'Snapshot not found (it may be out of the rolling window and been pruned).' };
+      }
+      return { ok: true };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

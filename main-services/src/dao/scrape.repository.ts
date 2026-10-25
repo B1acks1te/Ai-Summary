@@ -267,9 +267,42 @@ export class ScrapeRepository {
   // GANTT SNAPSHOTS — auto-captured whenever issued alerts change.
   // Rolling window of the most recent MAX_GANTT_SNAPSHOTS only; older
   // ones are pruned on insert. Viewing/editing an old snapshot in the
-  // UI is a local, non-persisted operation — this repository never
-  // updates an existing snapshot document, only inserts and prunes.
+  // public Gantt UI's bars editor is a local, non-persisted operation —
+  // that never updates an existing snapshot document, only insertGantt-
+  // Snapshot (below) inserts and prunes.
+  //
+  // updateGanttSnapshot is the one deliberate exception: an admin-only,
+  // explicit "replace this snapshot's data" action (see
+  // GanttRegenAdmin.tsx / POST /update-gantt-snapshot) for correcting an
+  // already-public snapshot in place — e.g. after fixing a bug, so
+  // whatever the public Gantt page is already showing for that moment
+  // becomes right, rather than only new snapshots going forward. It keeps
+  // the document's _id and insertedAt (so its position/label in the
+  // rolling list is unchanged) and only replaces the chart content.
   // ------------------------------------------------------------
+  async updateGanttSnapshot(
+    id: string,
+    chart: Pick<GanttChart, 'chart_title' | 'bars' | 'notes'>,
+  ): Promise<boolean> {
+    const collection = this.mongoService.getCollection<GanttSnapshotDoc>(
+      GANTT_SNAPSHOTS_COLLECTION,
+    );
+    const result = await collection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          chart_title: chart.chart_title,
+          bars: chart.bars,
+          notes: chart.notes,
+        },
+      },
+    );
+    if (result.matchedCount > 0) {
+      this.logger.log(`Gantt snapshot ${id} updated (corrected in place).`);
+    }
+    return result.matchedCount > 0;
+  }
+
   async insertGanttSnapshot(chart: GanttChart): Promise<void> {
     const collection = this.mongoService.getCollection<GanttSnapshotDoc>(
       GANTT_SNAPSHOTS_COLLECTION,

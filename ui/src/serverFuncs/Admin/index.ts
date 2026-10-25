@@ -445,6 +445,36 @@ export const adminRegenerateGanttAt = createServerFn({ method: 'POST' })
     }
   });
 
+// Replaces an existing auto-captured snapshot's data in place (same _id,
+// same position/label in the rolling list — only the chart content
+// changes). This is the step that actually makes a regenerated chart
+// visible on the PUBLIC Gantt page: adminRegenerateGanttAt above only
+// returns a fresh chart for review, it never saves anything.
+type UpdateGanttSnapshotResponse =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export const adminUpdateGanttSnapshot = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: { adminKey: string; id: string; chart: GanttChart }) => data,
+  )
+  .handler(async ({ data }): Promise<UpdateGanttSnapshotResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+
+    try {
+      const resp = await axios.post<UpdateGanttSnapshotResponse>(
+        `${process.env.MAIN_SERVICES_URL!}/update-gantt-snapshot`,
+        { id: data.id, chart: data.chart },
+        { headers: { 'x-admin-key': data.adminKey } },
+      );
+      return resp.data;
+    } catch (error) {
+      console.error('adminUpdateGanttSnapshot error:', error);
+      return { ok: false, error: `${error}` };
+    }
+  });
+
 async function collectionStat<
   T extends Document & { insertedAt?: Date },
 >(collection: {

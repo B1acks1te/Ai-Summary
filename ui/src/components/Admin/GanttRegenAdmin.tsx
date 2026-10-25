@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { CheckCircle2, RefreshCw, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { adminRegenerateGanttAt } from '@/serverFuncs/Admin';
+import { adminRegenerateGanttAt, adminUpdateGanttSnapshot } from '@/serverFuncs/Admin';
 import { getGanttSnapshots } from '@/serverFuncs/Gantt';
 import type { GanttChart, GanttSnapshot } from '@/types/gantt';
 import { DEFAULT_GANTT_RENDER_OPTIONS } from '@/types/gantt';
@@ -54,21 +54,44 @@ export function GanttRegenAdmin({ adminKey }: { adminKey: string }) {
     matchedAt: string | null;
     sourceText?: string;
     requestedLabel: string;
+    // Set ONLY when this regeneration came from clicking an existing
+    // snapshot button below (not the manual time picker) — that's the
+    // document id "Replace public snapshot" writes back to. A manual time
+    // might not land on an existing snapshot, so there's nothing to
+    // replace for it; regenerating from one, below, is the only path that
+    // can publish.
+    sourceSnapshotId?: string;
   } | null>(null);
+
+  // Publishing (replacing the public snapshot) is a separate, explicit
+  // step after reviewing the regenerated chart above — never automatic.
+  const [publishConfirming, setPublishConfirming] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishedMsg, setPublishedMsg] = useState('');
 
   const [manualAt, setManualAt] = useState(nowAsLocalInputValue());
 
+  const loadSnapshots = async () => {
+    const resp = await getGanttSnapshots();
+    setLoadingSnapshots(false);
+    if (resp.ok && resp.snapshots) setSnapshots(resp.snapshots);
+  };
+
   useEffect(() => {
-    (async () => {
-      const resp = await getGanttSnapshots();
-      setLoadingSnapshots(false);
-      if (resp.ok && resp.snapshots) setSnapshots(resp.snapshots);
-    })();
+    void loadSnapshots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const regenerateAt = async (atIso: string, label: string, key: string) => {
+  const regenerateAt = async (
+    atIso: string,
+    label: string,
+    key: string,
+    sourceSnapshotId?: string,
+  ) => {
     setRegeneratingKey(key);
     setError('');
+    setPublishedMsg('');
+    setPublishConfirming(false);
     const resp = await adminRegenerateGanttAt({
       data: { adminKey, at: atIso },
     });
@@ -79,6 +102,7 @@ export function GanttRegenAdmin({ adminKey }: { adminKey: string }) {
         matchedAt: resp.matchedAt,
         sourceText: resp.sourceText,
         requestedLabel: label,
+        sourceSnapshotId,
       });
     } else {
       setResult(null);
@@ -86,13 +110,38 @@ export function GanttRegenAdmin({ adminKey }: { adminKey: string }) {
     }
   };
 
+  const onPublish = async () => {
+    if (!result?.sourceSnapshotId) return;
+    setPublishing(true);
+    setError('');
+    const resp = await adminUpdateGanttSnapshot({
+      data: {
+        adminKey,
+        id: result.sourceSnapshotId,
+        chart: result.chart,
+      },
+    });
+    setPublishing(false);
+    setPublishConfirming(false);
+    if (resp.ok) {
+      setPublishedMsg(
+        `Public snapshot "${result.requestedLabel}" updated — users visiting the Gantt page now see this corrected chart.`,
+      );
+      void loadSnapshots();
+    } else {
+      setError(resp.error || 'Could not update the public snapshot.');
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
       <p className="text-xs text-gray-500">
         Re-runs a past moment's issued-alerts data through the current Gantt
-        extraction code. Nothing is saved — the stored auto-captured
-        snapshots below are untouched, so you can compare the regenerated
-        chart against them directly.
+        extraction code. Regenerating alone saves nothing — the stored
+        auto-captured snapshot is untouched, so you can compare the result
+        against it first. If it looks right, "Replace public snapshot"
+        writes it back in place, which is what the public Gantt page
+        actually shows.
       </p>
 
       <Field>
@@ -115,6 +164,7 @@ export function GanttRegenAdmin({ adminKey }: { adminKey: string }) {
                 regenerateAt(
                   snap.insertedAt,
                   i === 0 ? 'Latest snapshot' : formatSnapshotTime(snap.insertedAt),
+                  snap.id,
                   snap.id,
                 )
               }
@@ -169,22 +219,65 @@ export function GanttRegenAdmin({ adminKey }: { adminKey: string }) {
       </Field>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {publishedMsg && (
+        <p className="text-sm text-green-700 flex items-center gap-1.5">
+          <CheckCircle2 size={14} />
+          {publishedMsg}
+        </p>
+      )}
 
       {result && (
         <div className="flex flex-col gap-2 border rounded-lg p-3">
-          <p className="text-xs text-gray-500">
-            Regenerated for <span className="font-medium">{result.requestedLabel}</span>
-            {result.matchedAt && (
-              <>
-                {' '}
-                — matched issued-alerts record from{' '}
-                <span className="font-medium">
-                  {formatSnapshotTime(result.matchedAt)}
-                </span>
-              </>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-gray-500">
+              Regenerated for <span className="font-medium">{result.requestedLabel}</span>
+              {result.matchedAt && (
+                <>
+                  {' '}
+                  — matched issued-alerts record from{' '}
+                  <span className="font-medium">
+                    {formatSnapshotTime(result.matchedAt)}
+                  </span>
+                </>
+              )}
+              . Not saved{result.sourceSnapshotId ? ' yet' : ''}.
+            </p>
+
+            {result.sourceSnapshotId && !publishConfirming && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => setPublishConfirming(true)}
+                className="flex items-center gap-1.5"
+              >
+                <UploadCloud size={14} />
+                Replace public snapshot
+              </Button>
             )}
-            . Not saved.
-          </p>
+            {result.sourceSnapshotId && publishConfirming && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-amber-700 font-medium">
+                  Replace the public &quot;{result.requestedLabel}&quot; snapshot
+                  with this chart?
+                </span>
+                <Button
+                  size="sm"
+                  disabled={publishing}
+                  onClick={onPublish}
+                >
+                  {publishing ? 'Publishing...' : 'Yes, replace it'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={publishing}
+                  onClick={() => setPublishConfirming(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <GanttCanvas
               data={result.chart}
