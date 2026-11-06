@@ -20,9 +20,35 @@ FIELD DEFINITIONS for each item in the output array
     (i.e. converting it would require a completely different Māori name),
     keep the original English name as-is
     (e.g. keep "Auckland" not "Ākarana", keep "Canterbury" not "Waitaha").
+  - Keep any wording that narrows or extends an area attached to that area,
+    exactly as the source gives it. Do NOT shorten it to the bare place name:
+    - "northern and eastern parts of Wellington" (NOT just "Wellington")
+    - "Northland south of Whangarei" (NOT just "Northland")
+  - When the source describes a range ("X southwards to Y", "X across the
+    central high country to Y"), keep it as ONE entry with its range wording
+    intact, e.g. "Auckland and Coromandel Peninsula southwards to Bay of
+    Plenty". Do NOT flatten a range into a plain list of the end points.
 
 - when:
-  - array contains i.e. early morning, morning, afternoon, evening, night
+  - The time phrase(s) for this item, copied as the source words them,
+    e.g. "until late afternoon", "until late evening", "afternoon",
+    "evening", "early morning", "overnight".
+  - KEEP a leading "until", "from", "by" or "after" when the source uses one.
+    "until late evening" and "evening" mean different things — do NOT turn
+    "until late evening" into "evening".
+  - Do NOT add words of your own such as "during" or "the".
+  - If the source says "this afternoon and evening", return two entries:
+    "afternoon" and "evening".
+
+- severe:
+  - true ONLY when this item is the risk of SEVERE thunderstorms (the source
+    sentence says "risk of severe thunderstorms").
+  - false for the ordinary thunderstorm risk.
+  - Always include this field.
+  - The source often gives the ordinary risk and the severe risk as two
+    separate sentences for the same area, with different times. Output them as
+    TWO items — one with severe=false, one with severe=true. Never merge them
+    and never drop the severe one.
 
 - quotes
 - keywords

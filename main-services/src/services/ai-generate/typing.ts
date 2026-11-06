@@ -39,6 +39,8 @@ export type AIThunderstormOutlookSummaryDocument = {
       risk: 'Minimal' | 'Low' | 'Moderate' | 'High';
       areas: string[];
       when: string[];
+      // Absent on summaries generated before this field existed.
+      severe?: boolean;
       quotes: string[];
       keywords: string[];
     }[];

@@ -147,6 +147,10 @@ export type AIThunderstormOutlookSummaryDocument = {
       risk: 'Minimal' | 'Low' | 'Moderate' | 'High';
       areas: string[];
       when: string[];
+      // Absent on summaries generated before this field existed — use
+      // isSevereOutlook() (components/AISummary/utils.ts) rather than
+      // reading this directly.
+      severe?: boolean;
       quotes: string[];
       keywords: string[];
     }[];

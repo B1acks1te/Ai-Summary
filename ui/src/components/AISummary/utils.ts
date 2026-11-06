@@ -113,6 +113,99 @@ export function formatDuration(when: string[]): string {
   return `${beforeLast} and ${last}`;
 }
 
+// ------------------------------------------------------------------
+// Thunderstorm outlook line wording
+//
+// Each AI summary line is built here — one place — so the text on screen
+// and the text the copy button copies can never drift apart.
+// ------------------------------------------------------------------
+
+// A "when" phrase that already starts with its own lead-in word — "until
+// late evening", "this afternoon", "overnight". These must NOT be wrapped
+// in "During the …" ("During the until late evening" was the bug). Note
+// "early"/"late" are deliberately NOT in this list: "early morning" and
+// "late afternoon" are plain parts of the day and do take "During the".
+const SELF_CONTAINED_WHEN =
+  /^(until|till|by|from|after|before|through|throughout|into|during|this|tonight|today|overnight|all day|later|in|on|over|around|about)\b/i;
+
+/**
+ * The time lead-in for a thunderstorm line, WITHOUT its trailing comma:
+ *   ["afternoon", "evening"]       -> "During the afternoon and evening"
+ *   ["until late evening"]         -> "Until late evening"
+ *   ["overnight"]                  -> "Overnight"
+ *   []                             -> ""   (caller drops the lead-in)
+ * "until"/"from"/"by" keep their meaning rather than being turned into
+ * "during" — "until late evening" and "during the evening" differ.
+ */
+export function formatOutlookLeadIn(when: string[]): string {
+  const phrase = formatDuration(when.map((w) => w.trim()).filter(Boolean));
+  if (!phrase) return '';
+  if (/^the\b/i.test(phrase)) return `During ${phrase}`;
+  if (SELF_CONTAINED_WHEN.test(phrase)) {
+    return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+  }
+  return `During the ${phrase}`;
+}
+
+/**
+ * Whether a thunderstorm item is the risk of SEVERE thunderstorms.
+ *
+ * Trusts the AI's explicit `severe: true`. Summaries stored before that
+ * field existed (and any where the model left it out) fall back to the
+ * item's own verbatim quotes: severe only when they talk about "risk of
+ * severe thunderstorms" and never about a plain "risk of thunderstorms".
+ * That is deliberately conservative — a quote that spans both sentences
+ * is left as an ordinary item (today's wording) rather than risk
+ * mislabelling an ordinary item as severe.
+ */
+export function isSevereOutlook(outlook: {
+  severe?: boolean;
+  quotes: string[];
+}): boolean {
+  if (outlook.severe === true) return true;
+  const quoted = outlook.quotes.join(' ');
+  return (
+    /\brisk of severe thunderstorms?\b/i.test(quoted) &&
+    !/\brisk of thunderstorms?\b/i.test(quoted)
+  );
+}
+
+export type OutlookSentence = {
+  // Everything before the (underlined) risk word, including its article.
+  before: string;
+  // Lower-case risk word, e.g. "moderate".
+  risk: string;
+  // Everything after the risk word, including the final full stop.
+  after: string;
+};
+
+/**
+ * The three pieces of one thunderstorm line, e.g.
+ *   before "Until early evening, there is a "
+ *   risk   "moderate"
+ *   after  " risk of severe thunderstorms for Auckland and Bay of Plenty."
+ * The component renders `risk` underlined between the other two, and the
+ * copy button copies the three joined back together.
+ */
+export function buildOutlookSentence(outlook: {
+  risk: string;
+  areas: string[];
+  when: string[];
+  severe?: boolean;
+  quotes: string[];
+}): OutlookSentence {
+  const leadIn = formatOutlookLeadIn(outlook.when);
+  const areas = formatAreasList(outlook.areas);
+  const hazard = isSevereOutlook(outlook)
+    ? 'severe thunderstorms'
+    : 'thunderstorms';
+  return {
+    before: leadIn ? `${leadIn}, there is a ` : 'There is a ',
+    risk: outlook.risk.toLowerCase(),
+    after: ` risk of ${hazard}${areas ? ` for ${areas}` : ''}.`,
+  };
+}
+
 // return the latest date, if one of the date is undefined, return null
 export function getLatestDate(dates: (Date | undefined)[]): Date | null {
   if (dates.includes(undefined)) return null;

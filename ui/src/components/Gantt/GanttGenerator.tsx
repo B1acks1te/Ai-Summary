@@ -71,8 +71,17 @@ const HOW_TO_STORAGE_KEY = 'gantt-how-to-open';
 // per browser, same pattern as HOW_TO_STORAGE_KEY above.
 const RENDER_OPTIONS_STORAGE_KEY = 'gantt-render-options';
 
+// Only the on/off options become checkboxes — sortOrder is a choice with its
+// own dropdown, so it must not be a valid checkbox key (its value isn't a
+// boolean, which is what `checked` needs).
+type ToggleOptionKey = {
+  [K in keyof GanttRenderOptions]: GanttRenderOptions[K] extends boolean
+    ? K
+    : never;
+}[keyof GanttRenderOptions];
+
 const DISPLAY_OPTION_FIELDS: {
-  key: keyof GanttRenderOptions;
+  key: ToggleOptionKey;
   label: string;
 }[] = [
   { key: 'showLegend', label: 'Legend' },
@@ -849,9 +858,7 @@ Northwest winds may approach warning criteria.`}
                             className="w-full border rounded px-1.5 py-1 text-xs bg-white"
                           >
                             <option value="default">Default</option>
-                            <option value="start_time">
-                              Start date/time
-                            </option>
+                            <option value="start_time">Start date/time</option>
                           </select>
                         </div>
                         <p className="mt-2 text-[11px] text-gray-400">
