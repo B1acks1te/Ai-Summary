@@ -392,8 +392,8 @@ const HAZARD_ORDER: Record<string, number> = {
 // ─────────────────────────────────────────────────────────────
 // LEGEND — built dynamically from whatever hazard/severity combinations
 // are actually present on the chart (plus a "Peak Rain Intensity Period"
-// row when any rain bar has a peak window and the option is on), so it
-// never shows swatches for things that aren't on screen.
+// row when any rain bar has a peak window and the peak band option is on),
+// so it never shows swatches for things that aren't on screen.
 // ─────────────────────────────────────────────────────────────
 type LegendEntry = {
   label: string;
@@ -844,9 +844,7 @@ function computeLayout(
   const daySegments = options.showDayLabels
     ? computeDaySegments(minTime, maxTime)
     : [];
-  const peakBand = options.showPeakRainfall
-    ? computePeakBand(barsParsed)
-    : null;
+  const peakBand = options.showPeakBand ? computePeakBand(barsParsed) : null;
   // Reserve a row above the chart for the peak-rainfall band's label, only
   // when there's actually a band to label.
   const peakLabelReserve = peakBand ? 34 : 0;
@@ -1016,14 +1014,23 @@ function drawGantt(
     ctx.setLineDash([]);
 
     if (
-      options.showPeakRainfall &&
+      options.showPeakBars &&
       bar.hazard_type === 'rain' &&
       bar.peakStartDate &&
       bar.peakEndDate
     ) {
-      const px1 = Math.max(timeToX(bar.peakStartDate), x1);
-      const px2 = Math.min(timeToX(bar.peakEndDate), x1 + w);
-      const pw = Math.max(px2 - px1, 2);
+      const px1Raw = Math.max(timeToX(bar.peakStartDate), x1);
+      const px2Raw = Math.min(timeToX(bar.peakEndDate), x1 + w);
+      // Enforcing a minimum visible width (below) is fine for a genuinely
+      // narrow peak window, but when the server-side clamp has already
+      // pinned both ends to the bar's own right edge (the AI's guessed
+      // peak window fell entirely outside the warning period), px1Raw
+      // lands exactly at x1 + w. Growing the draw rect to the right from
+      // there — as a plain Math.max(px2 - px1, 2) would — pushes the
+      // minimum-width sliver past the bar's own box. Keep the whole
+      // highlight, minimum width included, inside [x1, x1 + w].
+      const pw = Math.min(Math.max(px2Raw - px1Raw, 2), w);
+      const px1 = Math.min(px1Raw, x1 + w - pw);
       const peakY = y + (barHeight - peakBarHeight) / 2;
       ctx.fillStyle = STYLES.peak.fill;
       ctx.fillRect(px1, peakY, pw, peakBarHeight);
@@ -1056,7 +1063,7 @@ function drawGantt(
   // full top-to-bottom height of the gantt (first bar row through the
   // axis) but only as wide as the peak window itself. The label lives in
   // the reserved strip above the bars, where it doesn't fight with bar text.
-  if (options.showPeakRainfall && peakBand) {
+  if (options.showPeakBand && peakBand) {
     const bx1 = timeToX(peakBand.start);
     const bx2 = timeToX(peakBand.end);
     const bandTop = plotTop - peakLabelReserve + 4;

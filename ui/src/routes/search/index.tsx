@@ -1,6 +1,7 @@
 import { AdminDebug } from '@/components/Admin/AdminDebug';
 import { AdminOverview } from '@/components/Admin/AdminOverview';
 import { AdminShell } from '@/components/Admin/AdminShell';
+import { GanttRegenAdmin } from '@/components/Admin/GanttRegenAdmin';
 import { FeedbackAdmin } from '@/components/Feedback/FeedbackAdmin';
 import { NoticeAdmin } from '@/components/Notice/NoticeAdmin';
 import { createFileRoute } from '@tanstack/react-router';
@@ -32,6 +33,11 @@ function RouteComponent() {
             value: 'feedback',
             label: 'Feedback',
             content: () => <FeedbackAdmin />,
+          },
+          {
+            value: 'gantt-regen',
+            label: 'Gantt regen',
+            content: (adminKey) => <GanttRegenAdmin adminKey={adminKey} />,
           },
           {
             value: 'debug',

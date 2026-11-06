@@ -13,7 +13,9 @@ import type {
   SevereWeatherOutlook,
   ThunderstormOutlook,
 } from '@/types';
+import type { GanttChart } from '@/types/gantt';
 import { createServerFn } from '@tanstack/react-start';
+import axios from 'axios';
 import { DateTime } from 'luxon';
 import type { Document, WithId } from 'mongodb';
 import { ObjectId } from 'mongodb';
@@ -403,6 +405,74 @@ export const adminListThunderstormOutlookAISummaryByDate = createServerFn({
         preview: d.genReason || 'AI summary',
       })),
     };
+  });
+
+// ---------------------------------------------------------------------------
+// GANTT REGEN — admin-only. Re-runs a past moment's issued-alerts data
+// through the CURRENT Gantt extraction code, for verifying a fix against a
+// real older case (e.g. a snapshot that showed a bug) without waiting for
+// "latest" to cycle back to it. Never writes anything back — main-services'
+// /regenerate-gantt-at only reads issued_alert_entries and returns a fresh,
+// unsaved chart. Checked here first (so a wrong key never reaches
+// main-services), then re-checked by main-services itself via the
+// x-admin-key header (defense in depth, same as Notice/Feedback).
+// ---------------------------------------------------------------------------
+type RegenerateGanttAtResponse =
+  | {
+      ok: true;
+      chart: GanttChart;
+      sourceText?: string;
+      matchedAt: string | null;
+    }
+  | { ok: false; error: string };
+
+export const adminRegenerateGanttAt = createServerFn({ method: 'POST' })
+  .inputValidator((data: { adminKey: string; at: string }) => data)
+  .handler(async ({ data }): Promise<RegenerateGanttAtResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+
+    try {
+      const resp = await axios.post<RegenerateGanttAtResponse>(
+        `${process.env.MAIN_SERVICES_URL!}/regenerate-gantt-at`,
+        { at: data.at },
+        { headers: { 'x-admin-key': data.adminKey } },
+      );
+      return resp.data;
+    } catch (error) {
+      console.error('adminRegenerateGanttAt error:', error);
+      return { ok: false, error: `${error}` };
+    }
+  });
+
+// Replaces an existing auto-captured snapshot's data in place (same _id,
+// same position/label in the rolling list — only the chart content
+// changes). This is the step that actually makes a regenerated chart
+// visible on the PUBLIC Gantt page: adminRegenerateGanttAt above only
+// returns a fresh chart for review, it never saves anything.
+type UpdateGanttSnapshotResponse =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export const adminUpdateGanttSnapshot = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: { adminKey: string; id: string; chart: GanttChart }) => data,
+  )
+  .handler(async ({ data }): Promise<UpdateGanttSnapshotResponse> => {
+    const authError = checkAdminKey(data.adminKey);
+    if (authError) return { ok: false, error: authError };
+
+    try {
+      const resp = await axios.post<UpdateGanttSnapshotResponse>(
+        `${process.env.MAIN_SERVICES_URL!}/update-gantt-snapshot`,
+        { id: data.id, chart: data.chart },
+        { headers: { 'x-admin-key': data.adminKey } },
+      );
+      return resp.data;
+    } catch (error) {
+      console.error('adminUpdateGanttSnapshot error:', error);
+      return { ok: false, error: `${error}` };
+    }
   });
 
 async function collectionStat<

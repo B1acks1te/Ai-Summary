@@ -9,7 +9,7 @@ import { useStore } from '@tanstack/react-store';
 import type { DateTime } from 'luxon';
 import { AiOutlineFileSearch } from 'react-icons/ai';
 import { CopyIcon } from '../CopyIcon';
-import { formatAreasList, formatDuration } from './utils';
+import { buildOutlookSentence } from './utils';
 
 export function ThunderstormOutlookItemComp({
   date,
@@ -18,20 +18,17 @@ export function ThunderstormOutlookItemComp({
   date: DateTime;
   outlook: AIThunderstormOutlookSummaryDocument['content'][number]['summary'][number];
 }) {
-  const formattedDuration = formatDuration(outlook.when);
-  const textContent = `${formattedDuration ? `During ${formattedDuration}, ` : ''}there is ${outlook.risk.toLowerCase()} risk of thunderstorms${
-    outlook.areas.length > 0 ? ` for ${formatAreasList(outlook.areas)}` : ''
-  }.`;
+  // One builder feeds both the on-screen line and the copied text, so they
+  // always match (previously the copy text said "During afternoon" while
+  // the screen said "During the afternoon").
+  const sentence = buildOutlookSentence(outlook);
+  const textContent = `${sentence.before}${sentence.risk}${sentence.after}`;
 
   return (
     <span>
-      {formattedDuration
-        ? `During the ${formattedDuration}, there is `
-        : 'There is '}
-      <span className="underline lowercase">{outlook.risk}</span> risk of
-      thunderstorms
-      {outlook.areas.length > 0 ? ` for ${formatAreasList(outlook.areas)}` : ''}
-      .
+      {sentence.before}
+      <span className="underline lowercase">{sentence.risk}</span>
+      {sentence.after}
       <span className="inline-flex px-1 gap-1 items-baseline relative top-0.5">
         <OutlookRefIcon
           date={date}

@@ -51,6 +51,16 @@ export const OutlookSchema = z.object({
   risk: z.enum(['Minimal', 'Low', 'Moderate', 'High']),
   areas: z.array(z.string()),
   when: z.array(z.string()),
+  // true when this item is the risk of SEVERE thunderstorms (MetService
+  // gives that as its own sentence, separate from the ordinary
+  // thunderstorm risk for the same area). Deliberately OPTIONAL: a failed
+  // Zod parse makes invokeStructured return null (i.e. no summary at all),
+  // so a model that forgets the field must not take the whole summary
+  // down — and documents stored before this field existed don't have it
+  // either. The UI treats a missing value as "unknown" and falls back to
+  // checking the item's own quotes (see isSevereOutlook in
+  // ui/src/components/AISummary/utils.ts).
+  severe: z.boolean().optional(),
   quotes: z.array(z.string()).min(1),
   keywords: z.array(z.string()),
 });

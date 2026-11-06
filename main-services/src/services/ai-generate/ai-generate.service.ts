@@ -6,12 +6,14 @@ import { ScrapeRepository } from 'src/dao/scrape.repository';
 import { NHISCHANNEL_EVENTS } from 'src/events';
 import { z } from 'zod';
 import {
+  clampPeakToBarPeriod,
   parseIssuedAnchorDate,
   resolveBarPeriod,
   resolvePeakPeriod,
 } from './dateAnchor';
 import { createGanttUserPrompt, ganttSystemPrompt } from './ganttPrompt';
 import { buildSeverityHazardLabel, parseHeading } from './headingParser';
+import { sortAreasNorthToSouth } from './regionOrder';
 import {
   GanttBar,
   GanttBarExtraction,
@@ -171,7 +173,15 @@ export class AiGenerateService {
       toolDescription:
         'Extract a structured severe-weather outlook summary from the supplied MetService text.',
     });
-    return parsed?.chanceOfUpgrade || [];
+    // The AI's own ordering of each item's "areas" array is extraction
+    // output, not trusted — same reasoning as headingParser.ts/
+    // dateAnchor.ts for Gantt bars: re-sort it deterministically north to
+    // south here rather than relying on the prompt's GEOGRAPHIC ORDERING
+    // instruction alone (see regionOrder.ts for why that isn't reliable).
+    return (parsed?.chanceOfUpgrade || []).map((item) => ({
+      ...item,
+      areas: sortAreasNorthToSouth(item.areas),
+    }));
   }
 
   async invokeThunderstormChatCompletion(outlook: string) {
@@ -183,7 +193,12 @@ export class AiGenerateService {
       toolDescription:
         'Extract a structured thunderstorm outlook summary from the supplied MetService text.',
     });
-    return parsed?.outlooks || [];
+    // Same deterministic re-sort as invokeSevereWeatherChatCompletion —
+    // see regionOrder.ts.
+    return (parsed?.outlooks || []).map((item) => ({
+      ...item,
+      areas: sortAreasNorthToSouth(item.areas),
+    }));
   }
 
   // ============================================================
@@ -275,8 +290,20 @@ export class AiGenerateService {
           bar.peak_end_day,
           bar.peak_end,
         );
-        peak_start = peakResolved.peak_start;
-        peak_end = peakResolved.peak_end;
+        // Vague phrases like "early Tuesday morning" force the AI to guess
+        // an HH:MM, and that guess has no obligation to respect the
+        // warning's own stated start/end — it can land a few minutes past
+        // the bar's own edge, producing a near-invisible sliver that looks
+        // misaligned. Clamp the resolved peak back inside this bar's own
+        // resolved [start, end] before using it.
+        const peakClamped = clampPeakToBarPeriod(
+          peakResolved.peak_start,
+          peakResolved.peak_end,
+          start,
+          end,
+        );
+        peak_start = peakClamped.peak_start;
+        peak_end = peakClamped.peak_end;
       }
 
       return {
